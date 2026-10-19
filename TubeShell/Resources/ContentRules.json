@@ -1,0 +1,33 @@
+[
+  {
+    "trigger": {
+      "url-filter": "googlevideo\\.com/videoplayback.*ctier=L&.*%2Cxpc%2Cctier%2C",
+      "if-domain": ["*youtube.com"]
+    },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://([^/]*\\.)?doubleclick\\.net/" },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://([^/]*\\.)?googlesyndication\\.com/" },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://([^/]*\\.)?googleadservices\\.com/" },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://([^/]*\\.)?googletagservices\\.com/" },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://imasdk\\.googleapis\\.com/" },
+    "action": { "type": "block" }
+  },
+  {
+    "trigger": { "url-filter": "^https?://([^/]*\\.)?google-analytics\\.com/" },
+    "action": { "type": "block" }
+  }
+]

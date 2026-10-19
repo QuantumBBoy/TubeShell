@@ -1,0 +1,5 @@
+// Signing: your Apple team goes in Local.xcconfig (not committed), e.g.
+//   DEVELOPMENT_TEAM = ABCDE12345
+// Find it in Xcode › Settings › Accounts, or leave it empty and pick the team in
+// Signing & Capabilities (then do not commit that change).
+#include? "Local.xcconfig"

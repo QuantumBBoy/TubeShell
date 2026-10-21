@@ -3,7 +3,7 @@ import WebKit
 
 /// Synced lyrics for the song playing in Music, from LRCLIB (free, no account): the line
 /// being sung lights up and stays in the middle; tapping a line jumps to it.
-/// Only the song title, artist and length are sent to lrclib.net.
+/// Only the song title and artist are sent to lrclib.net (the length is compared here).
 final class LyricsViewController: UITableViewController {
 
   private struct Line {

@@ -57,7 +57,7 @@ En iPhone sin isla dinámica, la cápsula aparece como una barra arriba con los 
 
 - **Audio con el iPhone bloqueado**, con carátula en la pantalla de bloqueo y botones de **siguiente / anterior** en lugar de los saltos de 10 segundos.
 - **Gestos en el reproductor**: desliza la carátula a los lados para cambiar de canción, tócala para ver la letra y deslízala hacia abajo para minimizar.
-- **Letra sincronizada**: toca la carátula de la canción (o ⋯ › Letra). La línea que suena se ilumina; toca una para saltar a ella. Si no hay letra sincronizada, un botón abre la de YouTube Music. Viene de [LRCLIB](https://lrclib.net); solo se envían el título, el artista y la duración.
+- **Letra sincronizada**: toca la carátula de la canción (o ⋯ › Letra). La línea que suena se ilumina; toca una para saltar a ella. Si no hay letra sincronizada, un botón abre la de YouTube Music. Viene de [LRCLIB](https://lrclib.net); solo se envían el título y el artista.
 - **Temporizador para dormir**: 15, 30, 45 o 60 minutos, o al acabar la canción.
 - **Sin avisos de Premium** ni botones de «Abrir aplicación».
 - Recibe el mejor audio gratuito de YouTube (Opus, formato 251). El de 256 kbps es solo para Premium.

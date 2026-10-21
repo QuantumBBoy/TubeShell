@@ -1884,8 +1884,10 @@
         hud.appendChild(bar);
       }
       hudFill.style.transform = 'scaleX(' + Math.max(0, Math.min(1, level)) + ')';
-      clearTimeout(hudTimer);
       hud.classList.add('on');
+      // Fades a moment after the last change: the app's answer to the last move can
+      // arrive after the finger has lifted.
+      hideHud(1000);
     };
     const hideHud = function (delay) {
       clearTimeout(hudTimer);

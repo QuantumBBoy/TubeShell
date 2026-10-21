@@ -103,10 +103,18 @@ fi
 
 if ! xcrun devicectl device install app --device "$DEVICE" "$APP" >>"$LOG" 2>&1; then
   log "install failed, will retry"
+  # Same warning as when the iPhone is not found (last day, at most every 6 hours).
+  if ((expiry - now < 86400)) && [ -z "$(find "$NAGGED" -mmin -360 2>/dev/null)" ]; then
+    notify "No se pudo instalar la renovación. Desbloquea el iPhone y déjalo conectado."
+    touch "$NAGGED"
+  fi
   exit 0
 fi
 
-iso=$(profile_plist "$APP/embedded.mobileprovision" | plutil -extract ExpirationDate raw -o - -)
+if ! iso=$(profile_plist "$APP/embedded.mobileprovision" | plutil -extract ExpirationDate raw -o - -); then
+  log "installed, but could not read the new expiry date"
+  exit 0
+fi
 date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$iso" +%s >"$STATE"
 log "installed, signature valid until $iso"
 notify "Firma renovada. Válida hasta $(date -j -r "$(cat "$STATE")" '+%d/%m %H:%M')."

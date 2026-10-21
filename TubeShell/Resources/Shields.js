@@ -364,6 +364,9 @@
       function (event) {
         const media = event.target;
         if (!(media instanceof HTMLMediaElement) || media.muted || media.volume === 0) return;
+        // A page reopened by the app starts by itself and is paused at once (the hold
+        // below): that must not stop what is playing in the other tab.
+        if (Date.now() < (window.__tubeShellHoldUntil || 0) && !window.__tubeShellPlayRequested) return;
         try {
           window.webkit.messageHandlers.tubeshell.postMessage({ type: 'play' });
         } catch (e) {}
@@ -473,11 +476,13 @@
         if (!window.__tubeShellAutoplay) holdUntil = Date.now() + 15000;
       }
     } catch (e) {}
+    window.__tubeShellHoldUntil = holdUntil;
     if (holdUntil) {
       document.addEventListener(
         'touchstart',
         function () {
           holdUntil = 0;
+          window.__tubeShellHoldUntil = 0;
         },
         { capture: true, once: true }
       );
@@ -1031,7 +1036,7 @@
       // folded down into the mini player, like its ⌄ button.
       back: function () {
         if (onMusic && document.querySelector('ytmusic-app-layout[player-page-open]')) {
-          press('ytmusic-player-page #collapse-button button, ytmusic-player-page #collapse-button');
+          if (window.__tubeShellFoldMusic) window.__tubeShellFoldMusic();
           return;
         }
         const before = location.href;
@@ -1144,6 +1149,22 @@
     if (document.documentElement) addLyricsStyle();
     else document.addEventListener('DOMContentLoaded', addLyricsStyle, { once: true });
 
+    // The app reopens the last song's page at launch (remember where you were): its
+    // player opens full screen by itself, which is not where the user left things.
+    const launchedOnSong = location.pathname === '/watch';
+    const launchedAt = Date.now();
+    let touchedSinceLaunch = false;
+    document.addEventListener(
+      'touchstart',
+      function () {
+        touchedSinceLaunch = true;
+      },
+      { capture: true, passive: true, once: true }
+    );
+    const restoringSong = function () {
+      return launchedOnSong && !touchedSinceLaunch && Date.now() - launchedAt < 15000;
+    };
+
     // Tell the app while the full player is open (see WebTab.setMusicPlayerOpen).
     let playerOpen = null;
     const reportPlayer = function () {
@@ -1153,6 +1174,167 @@
       try {
         window.webkit.messageHandlers.tubeshell.postMessage({ type: 'musicPlayer', open });
       } catch (e) {}
+      if (open && restoringSong()) {
+        // Reopened at launch on the last song: fold it into the mini player, paused.
+        // Music ignores the fold until its player has finished setting up: keep trying.
+        let tries = 0;
+        const fold = function () {
+          if (!playerOpen || !restoringSong() || tries++ > 12) return;
+          foldMusicPlayer();
+          setTimeout(fold, 600);
+        };
+        setTimeout(fold, 500);
+      } else if (open) {
+        hintTries = 0;
+        lastArtTop = null;
+        setTimeout(showGestureHints, 150);
+      }
+    };
+
+    // For about three seconds after the full player opens: what each gesture does.
+    // Arrows on the artwork (sideways = previous / next song), "drag down to close" above
+    // it, and "from the edge: back" low on the left, where the edge swipe is meant.
+    // Liquid Glass look: translucent, blurred and saturated, with a light rim.
+    // Motion, iOS style: each pill settles in (slight zoom out of a blur), a specular
+    // sheen sweeps across the glass, then the whole pill gives one soft nudge the way
+    // its gesture goes. On the way out it melts back into a blur. Nothing moves with
+    // Reduce Motion.
+    const hintCss =
+      '.tubeshell-hints { position: fixed; inset: 0; z-index: 2147483646; pointer-events: none;' +
+      ' font: 600 13px -apple-system, sans-serif; color: #fff; }' +
+      '.tubeshell-hints > div { position: absolute; display: flex; align-items: center; gap: 7px;' +
+      ' padding: 7px 13px; border-radius: 999px; white-space: nowrap; line-height: 1; overflow: hidden;' +
+      ' background: rgba(255,255,255,.10); border: .5px solid rgba(255,255,255,.28);' +
+      ' box-shadow: inset 0 .5px 0 rgba(255,255,255,.5), inset 0 -.5px 0 rgba(255,255,255,.12), 0 4px 14px rgba(0,0,0,.22);' +
+      ' text-shadow: 0 1px 2px rgba(0,0,0,.35);' +
+      ' -webkit-backdrop-filter: blur(16px) saturate(140%) brightness(.9); backdrop-filter: blur(16px) saturate(140%) brightness(.9); }' +
+      '.tubeshell-hints > div::after { content: ""; position: absolute; inset: 0; border-radius: inherit;' +
+      ' background: linear-gradient(110deg, transparent 42%, rgba(255,255,255,.20) 47.5%, rgba(255,255,255,.45) 50%, rgba(255,255,255,.20) 52.5%, transparent 58%);' +
+      ' background-size: 250% 100%; background-position: 100% 0; opacity: 0; mix-blend-mode: plus-lighter; }' +
+      // Chevrons drawn in CSS, centred on the text (glyphs like ⌄ sit low).
+      '.tubeshell-hints i { width: 7px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0;' +
+      ' display: inline-block; flex: none; }' +
+      '.tubeshell-hints i.left { transform: rotate(135deg); margin-left: 2px; }' +
+      '.tubeshell-hints i.right { transform: rotate(-45deg); margin-right: 2px; }' +
+      '.tubeshell-hints i.down { transform: rotate(45deg); margin-top: -4px; }' +
+      '.tubeshell-hints i.tap { width: 8px; height: 8px; border: 2px solid #fff; border-radius: 50%; transform: none; }' +
+      '.tubeshell-hints > div { opacity: 0; }' +
+      '.tubeshell-hints.on > div { opacity: 1; }' +
+      // Motion (reviewed against iOS): the glass itself fades in (backdrop blur 0 → 16,
+      // never filter: blur, which switches the frost off), with a slight spring; a soft
+      // sheen crosses each pill once; then the whole pill gives one crisp nudge the way
+      // its gesture goes (the tap pill a little press). Out: glass melts away.
+      '@media (prefers-reduced-motion: no-preference) {' +
+      ' .tubeshell-hints.on > div { animation: tsh-in .55s cubic-bezier(.34,1.25,.64,1) var(--d) both,' +
+      '   tsh-nudge .8s calc(var(--d) + 1.15s) both; }' +
+      ' .tubeshell-hints.on > div.tap { animation: tsh-in .55s cubic-bezier(.34,1.25,.64,1) var(--d) both,' +
+      '   tsh-press .7s cubic-bezier(.4,0,.2,1) calc(var(--d) + 1.15s) both; }' +
+      ' .tubeshell-hints.on > div::after { animation: tsh-sheen .9s cubic-bezier(.45,.05,.55,.95) calc(var(--d) + .3s) both; }' +
+      ' .tubeshell-hints.out > div, .tubeshell-hints.out > div.tap { animation: tsh-out .24s cubic-bezier(.4,0,.6,1) both; }' +
+      '}' +
+      '.tubeshell-hints > div.left { --nx: -4px; --ny: 0px; }' +
+      '.tubeshell-hints > div.right { --nx: 4px; --ny: 0px; }' +
+      '.tubeshell-hints > div.down { --nx: 0px; --ny: 4px; }' +
+      '@keyframes tsh-in { from { opacity: 0; scale: .92;' +
+      ' -webkit-backdrop-filter: blur(8px) saturate(120%) brightness(.95); backdrop-filter: blur(8px) saturate(120%) brightness(.95); }' +
+      ' to { opacity: 1; scale: 1; -webkit-backdrop-filter: blur(16px) saturate(140%) brightness(.9);' +
+      ' backdrop-filter: blur(16px) saturate(140%) brightness(.9); } }' +
+      '@keyframes tsh-sheen { 0% { opacity: 0; background-position: 100% 0; } 8% { opacity: 1; }' +
+      ' 94% { opacity: 1; } 100% { opacity: 0; background-position: 0% 0; } }' +
+      '@keyframes tsh-nudge { 0% { translate: 0 0; animation-timing-function: cubic-bezier(.3,0,.2,1); }' +
+      ' 35% { translate: var(--nx) var(--ny); animation-timing-function: cubic-bezier(.4,0,.2,1); }' +
+      ' 60% { translate: calc(var(--nx) * -.2) calc(var(--ny) * -.2); } 80%, 100% { translate: 0 0; } }' +
+      '@keyframes tsh-press { 0% { scale: 1; animation-timing-function: cubic-bezier(.3,0,.2,1); }' +
+      ' 25% { scale: .93; animation-timing-function: cubic-bezier(.3,0,.2,1); }' +
+      ' 55% { scale: 1.02; animation-timing-function: cubic-bezier(.3,0,.2,1); } 80%, 100% { scale: 1; } }' +
+      '@keyframes tsh-out { 0% { opacity: 1; scale: 1; } 60% { opacity: .1; }' +
+      ' 100% { opacity: 0; scale: .96; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); } }';
+    // Device language (set by the app): Spanish or English.
+    const es = String(window.__tubeShellLang || navigator.language || '').toLowerCase().indexOf('es') === 0;
+    const T = es
+      ? { prev: 'Anterior', next: 'Siguiente', back: 'Atrás', lyrics: 'Toca: letra' }
+      : { prev: 'Previous', next: 'Next', back: 'Back', lyrics: 'Tap: lyrics' };
+    let hintsShown = null;
+    let hintTries = 0;
+    let lastArtTop = null;
+    // The player slides up as it opens: wait (up to ~2 s) until the artwork is in place.
+    const showGestureHints = function () {
+      if (hintsShown || !playerOpen) return;
+      const art = document.querySelector('ytmusic-player-page ytmusic-player#player');
+      const box = art && art.getBoundingClientRect();
+      // Placed only once the artwork has stopped moving (same spot two polls running) and
+      // sits in the top half: measured mid-slide, the hints landed on the song controls.
+      const settled = box && lastArtTop !== null && Math.abs(box.top - lastArtTop) < 1;
+      lastArtTop = box ? box.top : null;
+      const ready = settled && box.height > 80 && box.top >= 0 && box.top < innerHeight * 0.45;
+      if (!ready) {
+        if (hintTries++ < 20) setTimeout(showGestureHints, 100);
+        return;
+      }
+      if (!document.getElementById('tubeshell-hint-style')) {
+        const style = document.createElement('style');
+        style.id = 'tubeshell-hint-style';
+        style.textContent = hintCss;
+        document.head.appendChild(style);
+      }
+      const layer = document.createElement('div');
+      layer.className = 'tubeshell-hints';
+      // Built node by node: Music's Trusted Types policy rejects innerHTML.
+      const pill = function (parts, css) {
+        const el = document.createElement('div');
+        const lead = parts.find(function (p) { return p.chevron; });
+        if (lead) el.className = lead.chevron;
+        parts.forEach(function (part) {
+          if (part.chevron) {
+            const i = document.createElement('i');
+            i.className = part.chevron;
+            el.appendChild(i);
+          } else {
+            const span = document.createElement('span');
+            span.textContent = part.text;
+            el.appendChild(span);
+          }
+        });
+        el.style.cssText = css + '; --d:' + layer.childElementCount * 0.05 + 's';
+        layer.appendChild(el);
+      };
+      const midY = box.top + box.height / 2 - 15;
+      // Order of appearance: top, sides, centre, bottom. "Back" sits clear above the art.
+      pill([{ chevron: 'down' }, { text: T.back }], 'left:50%; transform:translateX(-50%); top:' + Math.max(box.top - 38, 66) + 'px');
+      pill([{ chevron: 'left' }, { text: T.prev }], 'left:' + (box.left + 10) + 'px; top:' + midY + 'px');
+      pill([{ text: T.next }, { chevron: 'right' }], 'right:' + (innerWidth - box.right + 10) + 'px; top:' + midY + 'px');
+      pill([{ chevron: 'tap' }, { text: T.lyrics }], 'left:50%; transform:translateX(-50%); top:' + (midY + 46) + 'px');
+      // "Back" hint in the gap between the song controls and the Up next / Lyrics tabs.
+      let backCss = 'left:10px; bottom:calc(env(safe-area-inset-bottom) + 90px)';
+      const controls = document.querySelector('ytmusic-player-page ytmusic-player-controls');
+      const tab = Array.prototype.find.call(
+        document.querySelectorAll('ytmusic-player-page tp-yt-paper-tab.tab-header'),
+        function (t) {
+          const r = t.getBoundingClientRect();
+          return r.height > 0 && r.top < innerHeight;
+        }
+      );
+      if (controls && tab) {
+        const gapTop = controls.getBoundingClientRect().bottom;
+        const gapBottom = tab.getBoundingClientRect().top;
+        if (gapBottom - gapTop >= 34) backCss = 'left:10px; top:' + ((gapTop + gapBottom) / 2 - 16) + 'px';
+      }
+      pill([{ chevron: 'left' }, { text: T.back }], backCss);
+      document.body.appendChild(layer);
+      hintsShown = layer;
+      requestAnimationFrame(function () {
+        layer.classList.add('on');
+      });
+      const hide = function () {
+        layer.classList.add('out');
+        setTimeout(function () {
+          layer.remove();
+          if (hintsShown === layer) hintsShown = null;
+        }, 400);
+        document.removeEventListener('touchstart', hide, true);
+      };
+      setTimeout(hide, 3200);
+      document.addEventListener('touchstart', hide, true);
     };
     const watchPlayer = function () {
       new MutationObserver(reportPlayer).observe(document.documentElement, {
@@ -1218,11 +1400,41 @@
 
     // Drag the full player down (from the artwork or the space above it) to fold it into
     // the mini player, like the app: it follows the finger; past 120 pt it folds.
+    // Fold the full player into the mini player, as its ⌄ button does: the inner button
+    // is the one that reacts; if the player is still open, try the button's host, then
+    // Escape (which Music also handles).
+    const isOpen = function () {
+      return Boolean(document.querySelector('ytmusic-app-layout[player-page-open]'));
+    };
+    const foldMusicPlayer = function () {
+      const attempts = [
+        function () {
+          const b = document.querySelector('ytmusic-player-page #collapse-button button');
+          if (b) b.click();
+        },
+        function () {
+          const b = document.querySelector('ytmusic-player-page #collapse-button');
+          if (b) b.click();
+        },
+        function () {
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+        },
+      ];
+      let i = 0;
+      const next = function () {
+        if (!isOpen() || i >= attempts.length) return;
+        attempts[i++]();
+        setTimeout(next, 120);
+      };
+      next();
+    };
+    window.__tubeShellFoldMusic = foldMusicPlayer;
     const pageAt = function (target, y) {
       if (!(target instanceof Element) || !document.querySelector('ytmusic-app-layout[player-page-open]')) return null;
       const page = target.closest('ytmusic-player-page');
-      if (!page || target.closest('#side-panel, ytmusic-player-controls, tp-yt-paper-slider, #progress-bar')) return null;
-      return y < innerHeight * 0.6 ? page : null;
+      // Anywhere on the player except its controls, progress bar and Up next panel.
+      if (!page || target.closest('#side-panel, ytmusic-player-controls, tp-yt-paper-slider, #progress-bar, button, a')) return null;
+      return page;
     };
     let fold = null;
     document.addEventListener(
@@ -1251,23 +1463,28 @@
       },
       { capture: true, passive: true }
     );
-    const drop = function () {
+    const drop = function (event) {
       if (!fold) return;
       const { page, dy, active } = fold;
       fold = null;
       if (!active) return;
-      page.style.transition = 'transform 0.2s ease';
       if (dy > 120) {
-        page.style.transform = 'translateY(100vh)';
-        setTimeout(function () {
-          const collapse = document.querySelector('ytmusic-player-page #collapse-button button, ytmusic-player-page #collapse-button');
-          if (collapse) collapse.click();
-          haptic();
-        }, 180);
-        setTimeout(function () {
-          page.style.transition = page.style.transform = '';
-        }, 700);
+        // Fold at once from where the finger left it: Music slides the player down
+        // itself; the drag offset is dropped as soon as it starts closing.
+        haptic();
+        foldMusicPlayer();
+        const settle = function () {
+          if (isOpen() && Date.now() - releasedAt < 1200) return void setTimeout(settle, 30);
+          page.style.transition = 'transform 0.25s ease-out';
+          page.style.transform = '';
+          setTimeout(function () {
+            page.style.transition = '';
+          }, 300);
+        };
+        const releasedAt = Date.now();
+        settle();
       } else {
+        page.style.transition = 'transform 0.2s ease';
         page.style.transform = '';
       }
     };
@@ -1462,4 +1679,5 @@
       true
     );
   }
+
 })();

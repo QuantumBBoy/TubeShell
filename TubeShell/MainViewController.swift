@@ -69,12 +69,12 @@ final class MainViewController: UIViewController {
       DispatchQueue.main.async {
         guard let self else { return }
         if path.status == .satisfied {
-          self.webTabs.values.forEach { $0.connectionRestored() }
+          (Array(self.webTabs.values) + [self.playerTab].compactMap { $0 }).forEach { $0.connectionRestored() }
         }
         guard cellular != self.onCellular else { return }
         self.onCellular = cellular
         (Array(self.webTabs.values) + [self.playerTab].compactMap { $0 }).forEach {
-          $0.run("network(\(cellular))")
+          $0.cellular = cellular
         }
       }
     }
@@ -107,7 +107,9 @@ final class MainViewController: UIViewController {
     }
   }
 
-  private var hasIsland: Bool { view.safeAreaInsets.top >= 50 }
+  // Dynamic Island iPhones have a top safe area of 59 pt or more; notch models 44–50
+  // (the 12 / 13 mini reach 50).
+  private var hasIsland: Bool { view.safeAreaInsets.top >= 54 }
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -158,6 +160,7 @@ final class MainViewController: UIViewController {
       contentView.bringSubviewToFront(player.webView)
     }
     selectedTab = tab
+    visibleWebTab(tab)?.wasShown()
     updateSleepButton()
     pageColorDidChange(in: tab)
     tabSwitch.selectedSegmentIndex = tab.rawValue
@@ -232,6 +235,13 @@ final class MainViewController: UIViewController {
   private var miniDragStart: CGPoint?
   private var miniTab: WebTab? { playerMinimized ? playerTab : nil }
 
+  /// On screen now: the visible tab's page, or the player in the mini window.
+  func isShowing(_ webTab: WebTab) -> Bool {
+    if webTab === playerTab && playerMinimized { return true }
+    guard let tab = selectedTab else { return false }
+    return visibleWebTab(tab) === webTab
+  }
+
   /// The web view showing in a tab: YouTube's player when it is open full size.
   private func visibleWebTab(_ tab: AppTab) -> WebTab? {
     if tab == .youtube, let player = playerTab, !playerMinimized { return player }
@@ -252,7 +262,7 @@ final class MainViewController: UIViewController {
       attach(player.webView)
       playerTab = player
       player.load(url)
-      player.run("network(\(onCellular))")
+      player.cellular = onCellular
       if autoplay { player.runAfterLoad("startPlayback()") }
     }
     if show { select(.youtube) }
@@ -269,7 +279,7 @@ final class MainViewController: UIViewController {
   func minimize(_ webTab: WebTab) {
     guard webTab === playerTab, !playerMinimized else { return }
     tick()
-    webTab.run("mini(true)")
+    webTab.setMini(true)
     let webView = webTab.webView
     webView.removeFromSuperview()
     webView.translatesAutoresizingMaskIntoConstraints = true
@@ -356,7 +366,7 @@ final class MainViewController: UIViewController {
     player.webView.removeFromSuperview()
     player.webView.isUserInteractionEnabled = true
     attach(player.webView)
-    player.run("mini(false)")
+    player.setMini(false)
   }
 
   @objc private func closeMini() {
@@ -685,7 +695,7 @@ final class MainViewController: UIViewController {
     attach(webTab.webView)
     webTabs[tab] = webTab
     webTab.load(url ?? tab.startURL)
-    webTab.run("network(\(onCellular))")
+    webTab.cellular = onCellular
     return webTab
   }
 
@@ -902,6 +912,12 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
     tableView.keyboardDismissMode = .onDrag
   }
 
+  /// Closed by swiping it down or tapping outside: the microphone stops, nothing is searched.
+  override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
+    stopListening()
+  }
+
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
     if startListening {
@@ -933,7 +949,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
   }
 
   func searchBarBookmarkButtonClicked(_ searchBar: UISearchBar) {
-    recognition == nil ? listen() : stopListening()
+    listening ? stopListening() : listen()
   }
 
   // MARK: Recent searches
@@ -986,7 +1002,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
   }
 
   private func record() {
-    guard let recognizer, recognizer.isAvailable, recognition == nil else { return voiceUnavailable() }
+    guard let recognizer, recognizer.isAvailable, !listening else { return voiceUnavailable() }
     let session = AVAudioSession.sharedInstance()
     try? session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
     try? session.setActive(true)
@@ -998,6 +1014,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
       request.append(buffer)
     }
     audioEngine.prepare()
+    listening = true  // the tap is installed: stopListening must remove it whatever happens
     do { try audioEngine.start() } catch { return stopListening() }
 
     searchBar.resignFirstResponder()
@@ -1006,6 +1023,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
     searchBar.setImage(UIImage(systemName: "mic.circle.fill"), for: .bookmark, state: .normal)
     recognition = recognizer.recognitionTask(with: request) { result, error in
       DispatchQueue.main.async {
+        guard self.listening else { return }  // closed meanwhile: no search
         if let result {
           self.searchBar.text = result.bestTranscription.formattedString
           // Search once the voice has stopped for a moment.
@@ -1020,10 +1038,13 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
     }
   }
 
+  private var listening = false
+
   private func stopListening() {
     silenceTimer?.invalidate()
     silenceTimer = nil
-    guard recognition != nil else { return }
+    guard listening else { return }
+    listening = false
     recognition?.cancel()
     recognition = nil
     audioEngine.stop()

@@ -59,6 +59,16 @@ final class WebTab: NSObject {
     if let ruleList {
       controller.add(ruleList)
     }
+    // Device language for Shields.js's own labels (Spanish or English).
+    let language = Locale.preferredLanguages.first?.hasPrefix("es") == true ? "es" : "en"
+    controller.addUserScript(
+      WKUserScript(
+        source: "window.__tubeShellLang = '\(language)';",
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true,
+        in: .page
+      )
+    )
     if edgeToEdge {
       // Read by Shields.js (the user agent still says iOS 18, so it cannot tell).
       controller.addUserScript(
@@ -217,7 +227,40 @@ final class WebTab: NSObject {
 
   /// Sleep timer "at the end of the song": Shields.js pauses when the track ends.
   func setSleepAtEndOfTrack(_ enabled: Bool) {
+    sleepAtEnd = enabled
     webView.evaluateJavaScript("window.__tubeShellSleepAtEnd = \(enabled); void 0;", completionHandler: nil)
+  }
+
+  // MARK: - Page state that must survive a reload
+  // Everything the app tells a page lives in that page; a full load (a new video in the
+  // player, a reload, a crash) forgets it, so it is kept here and told again each time.
+
+  private var sleepAtEnd = false
+  private var miniMode = false
+  /// Mobile data or Low Data Mode (data saver).
+  var cellular = false {
+    didSet { if cellular != oldValue { run("network(\(cellular))") } }
+  }
+
+  func setMini(_ on: Bool) {
+    miniMode = on
+    run("mini(\(on))")
+  }
+
+  private func reapplyPageState() {
+    run("network(\(cellular))")
+    if miniMode { run("mini(true)") }
+    if sleepAtEnd { webView.evaluateJavaScript("window.__tubeShellSleepAtEnd = true; void 0;", completionHandler: nil) }
+  }
+
+  /// Set when iOS killed this page while it was not on screen (see below).
+  private var reloadWhenShown = false
+
+  /// Called when this web view comes on screen.
+  func wasShown() {
+    guard reloadWhenShown else { return }
+    reloadWhenShown = false
+    if webView.url == nil { load(startURL) } else { webView.reload() }
   }
 
   // MARK: - Offline screen and pull to refresh
@@ -437,6 +480,7 @@ extension WebTab: WKNavigationDelegate, WKUIDelegate {
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     webView.isOpaque = true
     offlineView.removeFromSuperview()
+    reapplyPageState()
     let commands = pendingCommands
     pendingCommands = []
     commands.forEach(run)
@@ -450,6 +494,12 @@ extension WebTab: WKNavigationDelegate, WKUIDelegate {
     crashDates = crashDates.filter { now.timeIntervalSince($0) < 60 } + [now]
     guard crashDates.count <= 3 else {
       NSLog("TubeShell: web process keeps crashing in %@, not reloading", tab.title)
+      return
+    }
+    // Off screen (for example the other tab while the iPhone is locked): reload only when
+    // it is shown again, or the reloaded page would start playing over the other tab.
+    if owner?.isShowing(self) == false {
+      reloadWhenShown = true
       return
     }
     // After a crash during the first load there is no page to reload yet.

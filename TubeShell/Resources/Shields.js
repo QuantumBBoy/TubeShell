@@ -357,8 +357,21 @@
   }, 5 * 60 * 1000);
 
   // Tell the app a video or song started with sound, so it can pause the other tab.
-  // Muted previews (feed, Shorts thumbnails) are ignored: they must not stop the music.
+  // Muted previews (feed, Shorts thumbnails) are ignored: they must not stop the music,
+  // but a muted video that gets its sound while playing counts as starting.
   if (isTopFrame) {
+    document.addEventListener(
+      'volumechange',
+      function (event) {
+        const media = event.target;
+        if (!(media instanceof HTMLMediaElement) || media.paused || media.muted || media.volume === 0) return;
+        if (Date.now() < (window.__tubeShellHoldUntil || 0) && !window.__tubeShellPlayRequested) return;
+        try {
+          window.webkit.messageHandlers.tubeshell.postMessage({ type: 'play' });
+        } catch (e) {}
+      },
+      true
+    );
     document.addEventListener(
       'play',
       function (event) {
@@ -434,6 +447,17 @@
   if (isTopFrame) {
     const resumeAt = window.__tubeShellResumeAt;
     let resumed = false;
+    // Music resets the song to 0:00 while it sets itself up: keep putting it back for the
+    // first seconds (until it sticks or the user touches the page), and do not save the
+    // position meanwhile, or the 0:00 would overwrite the second to restore.
+    const resumeUntil = Date.now() + 10000;
+    document.addEventListener(
+      'touchstart',
+      function () {
+        resumed = true;
+      },
+      { capture: true, passive: true, once: true }
+    );
     let lastReport = 0;
     const track = function (event) {
       const media = event.target;
@@ -442,11 +466,17 @@
       if (!id || !isFinite(media.duration)) return;
 
       if (resumeAt && !resumed && resumeAt.v === id) {
-        resumed = true;
-        if (resumeAt.t > 5 && resumeAt.t < media.duration - 5 && media.currentTime < resumeAt.t - 2) {
+        const wanted = resumeAt.t > 5 && resumeAt.t < media.duration - 5;
+        if (!wanted || Date.now() > resumeUntil) {
+          resumed = true;
+        } else if (media.currentTime < resumeAt.t - 2) {
           media.currentTime = resumeAt.t;
+          return;
+        } else if (media.currentTime < resumeAt.t + 3) {
+          return; // in place; confirm on a later event before saving again
+        } else {
+          resumed = true;
         }
-        return;
       }
       const now = Date.now();
       if (event.type !== 'pause' && now - lastReport < 5000) return;
@@ -986,16 +1016,18 @@
         const until = Date.now() + 10000;
         const play = function () {
           const video = document.querySelector('video');
-          if (Date.now() > until || !video || !video.currentSrc || !video.paused || video.ended) return;
+          if (Date.now() > until || !video || !video.currentSrc || video.ended) return;
+          // YouTube may already be playing it muted ("Tap to unmute"): give it sound too.
           const player = document.getElementById('movie_player');
           try {
-            if (player && player.unMute) player.unMute();
+            if (player && player.isMuted && player.isMuted() && player.unMute) player.unMute();
           } catch (e) {}
-          video.muted = false;
+          if (video.muted) video.muted = false;
+          if (!video.paused) return;
           const result = nativePlay.call(video);
           if (result && result.catch) result.catch(function () {});
         };
-        const events = ['loadedmetadata', 'canplay'];
+        const events = ['loadedmetadata', 'canplay', 'playing'];
         const stop = function () {
           events.forEach(function (type) {
             document.removeEventListener(type, play, true);
@@ -1039,22 +1071,49 @@
           if (window.__tubeShellFoldMusic) window.__tubeShellFoldMusic();
           return;
         }
-        const before = location.href;
-        history.back();
-        setTimeout(function () {
-          if (location.href !== before) return;
-          const lastSearch = pref('tubeShellLastSearch', '');
-          if (lastSearch && lastSearch !== location.pathname + location.search) location.assign(lastSearch);
-          else window.__tubeShell.home();
-        }, 400);
+        // Music stacks copies of the same page in the history while it loads (redirects,
+        // added parameters): going back to one of them looks like nothing happened. Keep
+        // going back past copies of where we started; with nothing behind (the app
+        // reopened straight on this page) Music goes home, YouTube to the last search.
+        const samePage = function (a, b) {
+          const id = function (u) {
+            const url = new URL(u, location.href);
+            return url.pathname + '|' + (url.searchParams.get('list') || '') + '|' + (url.searchParams.get('v') || '');
+          };
+          return id(a) === id(b);
+        };
+        const start = location.href;
+        const step = function (n) {
+          const before = location.href;
+          history.back();
+          setTimeout(function () {
+            if (location.href === before) {
+              const lastSearch = onMusic ? '' : pref('tubeShellLastSearch', '');
+              if (lastSearch && lastSearch !== location.pathname + location.search) location.assign(lastSearch);
+              else window.__tubeShell.home();
+            } else if (samePage(location.href, start) && n < 5) {
+              step(n + 1);
+            }
+          }, 250);
+        };
+        step(0);
       },
       // Tapping the tab you are on in the app: back to the site's home page.
+      // In-app navigation first (the music keeps playing): Music's logo link, then its
+      // side menu; only if the page did not change, load the home page.
       home: function () {
+        const before = page();
         if (onMusic) {
-          window.__tubeShell.go(0);
+          if (!press('ytmusic-nav-bar ytmusic-logo a, ytmusic-nav-bar a[href="/"]')) window.__tubeShell.go(0);
+          setTimeout(function () {
+            if (page() !== before || location.pathname === '/') return;
+            window.__tubeShell.go(0);
+            setTimeout(function () {
+              if (page() === before && location.pathname !== '/') location.assign('/');
+            }, 400);
+          }, 300);
           return;
         }
-        const before = page();
         press('ytm-pivot-bar-item-renderer:first-of-type .pivot-bar-item-tab, ytm-home-logo button');
         setTimeout(function () {
           if (page() === before && location.pathname !== '/') location.assign('/');
@@ -1127,6 +1186,46 @@
       history: function () {
         press('ytmusic-nav-bar #history-link, ytmusic-nav-bar .history-button');
       },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 8b. Music history: the full player is not a page of its own
+  // ---------------------------------------------------------------------------
+  // Music pushes /watch when a song opens and, on closing the player, pushes the page
+  // underneath again: Home, Playlist, Song, Playlist. Back from the playlist then reopened
+  // the song. The song now takes the place of the page it was opened from, and that page
+  // takes its place back on closing: Home, Playlist; back goes Home.
+
+  if (isTopFrame && location.hostname === 'music.youtube.com') {
+    const nativePush = history.pushState.bind(history);
+    const nativeReplace = history.replaceState.bind(history);
+    const isWatch = function (url) {
+      try {
+        return new URL(url, location.href).pathname === '/watch';
+      } catch (e) {
+        return false;
+      }
+    };
+    const here = function () {
+      return location.pathname + location.search;
+    };
+    let openedFrom = null; // the page a song replaced in the history
+    history.pushState = function (state, title, url) {
+      if (url != null && isWatch(url) && !isWatch(here())) {
+        openedFrom = { state: history.state, url: here() };
+        return nativeReplace(state, title, url);
+      }
+      if (url != null && !isWatch(url) && isWatch(here())) {
+        const from = openedFrom;
+        openedFrom = null;
+        const target = new URL(url, location.href);
+        if (!from || from.url === target.pathname + target.search) return nativeReplace(state, title, url);
+        // Closed into a different page (an artist from the player): keep where it came from.
+        nativeReplace(from.state, '', from.url);
+        return nativePush(state, title, url);
+      }
+      return nativePush(state, title, url);
     };
   }
 
@@ -1208,9 +1307,11 @@
       ' box-shadow: inset 0 .5px 0 rgba(255,255,255,.5), inset 0 -.5px 0 rgba(255,255,255,.12), 0 4px 14px rgba(0,0,0,.22);' +
       ' text-shadow: 0 1px 2px rgba(0,0,0,.35);' +
       ' -webkit-backdrop-filter: blur(16px) saturate(140%) brightness(.9); backdrop-filter: blur(16px) saturate(140%) brightness(.9); }' +
-      '.tubeshell-hints > div::after { content: ""; position: absolute; inset: 0; border-radius: inherit;' +
+      // The sheen is a wide gradient strip slid across with transform (GPU only): moving
+      // background-position or blending repaints the pill on every frame.
+      '.tubeshell-hints > div::after { content: ""; position: absolute; top: 0; bottom: 0; left: -100%; width: 300%;' +
       ' background: linear-gradient(110deg, transparent 42%, rgba(255,255,255,.20) 47.5%, rgba(255,255,255,.45) 50%, rgba(255,255,255,.20) 52.5%, transparent 58%);' +
-      ' background-size: 250% 100%; background-position: 100% 0; opacity: 0; mix-blend-mode: plus-lighter; }' +
+      ' translate: -40% 0; opacity: 0; will-change: translate, opacity; }' +
       // Chevrons drawn in CSS, centred on the text (glyphs like ⌄ sit low).
       '.tubeshell-hints i { width: 7px; height: 7px; border: solid #fff; border-width: 0 2px 2px 0;' +
       ' display: inline-block; flex: none; }' +
@@ -1225,6 +1326,7 @@
       // sheen crosses each pill once; then the whole pill gives one crisp nudge the way
       // its gesture goes (the tap pill a little press). Out: glass melts away.
       '@media (prefers-reduced-motion: no-preference) {' +
+      ' .tubeshell-hints > div { will-change: opacity, scale, translate; }' +
       ' .tubeshell-hints.on > div { animation: tsh-in .55s cubic-bezier(.34,1.25,.64,1) var(--d) both,' +
       '   tsh-nudge .8s calc(var(--d) + 1.15s) both; }' +
       ' .tubeshell-hints.on > div.tap { animation: tsh-in .55s cubic-bezier(.34,1.25,.64,1) var(--d) both,' +
@@ -1235,20 +1337,18 @@
       '.tubeshell-hints > div.left { --nx: -4px; --ny: 0px; }' +
       '.tubeshell-hints > div.right { --nx: 4px; --ny: 0px; }' +
       '.tubeshell-hints > div.down { --nx: 0px; --ny: 4px; }' +
-      '@keyframes tsh-in { from { opacity: 0; scale: .92;' +
-      ' -webkit-backdrop-filter: blur(8px) saturate(120%) brightness(.95); backdrop-filter: blur(8px) saturate(120%) brightness(.95); }' +
-      ' to { opacity: 1; scale: 1; -webkit-backdrop-filter: blur(16px) saturate(140%) brightness(.9);' +
-      ' backdrop-filter: blur(16px) saturate(140%) brightness(.9); } }' +
-      '@keyframes tsh-sheen { 0% { opacity: 0; background-position: 100% 0; } 8% { opacity: 1; }' +
-      ' 94% { opacity: 1; } 100% { opacity: 0; background-position: 0% 0; } }' +
+      // Only opacity and scale animate: animating the backdrop blur re-renders the glass
+      // every frame and stutters on the phone.
+      '@keyframes tsh-in { from { opacity: 0; scale: .92; } to { opacity: 1; scale: 1; } }' +
+      '@keyframes tsh-sheen { 0% { opacity: 0; translate: -40% 0; } 8% { opacity: 1; }' +
+      ' 94% { opacity: 1; } 100% { opacity: 0; translate: 40% 0; } }' +
       '@keyframes tsh-nudge { 0% { translate: 0 0; animation-timing-function: cubic-bezier(.3,0,.2,1); }' +
       ' 35% { translate: var(--nx) var(--ny); animation-timing-function: cubic-bezier(.4,0,.2,1); }' +
       ' 60% { translate: calc(var(--nx) * -.2) calc(var(--ny) * -.2); } 80%, 100% { translate: 0 0; } }' +
       '@keyframes tsh-press { 0% { scale: 1; animation-timing-function: cubic-bezier(.3,0,.2,1); }' +
       ' 25% { scale: .93; animation-timing-function: cubic-bezier(.3,0,.2,1); }' +
       ' 55% { scale: 1.02; animation-timing-function: cubic-bezier(.3,0,.2,1); } 80%, 100% { scale: 1; } }' +
-      '@keyframes tsh-out { 0% { opacity: 1; scale: 1; } 60% { opacity: .1; }' +
-      ' 100% { opacity: 0; scale: .96; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); } }';
+      '@keyframes tsh-out { 0% { opacity: 1; scale: 1; } 60% { opacity: .1; } 100% { opacity: 0; scale: .96; } }';
     // Device language (set by the app): Spanish or English.
     const es = String(window.__tubeShellLang || navigator.language || '').toLowerCase().indexOf('es') === 0;
     const T = es
@@ -1299,10 +1399,12 @@
         layer.appendChild(el);
       };
       const midY = box.top + box.height / 2 - 15;
+      // Narrow artwork (iPhone SE): the side pills would touch; arrows alone there.
+      const roomy = box.width >= 340;
       // Order of appearance: top, sides, centre, bottom. "Back" sits clear above the art.
       pill([{ chevron: 'down' }, { text: T.back }], 'left:50%; transform:translateX(-50%); top:' + Math.max(box.top - 38, 66) + 'px');
-      pill([{ chevron: 'left' }, { text: T.prev }], 'left:' + (box.left + 10) + 'px; top:' + midY + 'px');
-      pill([{ text: T.next }, { chevron: 'right' }], 'right:' + (innerWidth - box.right + 10) + 'px; top:' + midY + 'px');
+      pill(roomy ? [{ chevron: 'left' }, { text: T.prev }] : [{ chevron: 'left' }], 'left:' + (box.left + 10) + 'px; top:' + midY + 'px');
+      pill(roomy ? [{ text: T.next }, { chevron: 'right' }] : [{ chevron: 'right' }], 'right:' + (innerWidth - box.right + 10) + 'px; top:' + midY + 'px');
       pill([{ chevron: 'tap' }, { text: T.lyrics }], 'left:50%; transform:translateX(-50%); top:' + (midY + 46) + 'px');
       // "Back" hint in the gap between the song controls and the Up next / Lyrics tabs.
       let backCss = 'left:10px; bottom:calc(env(safe-area-inset-bottom) + 90px)';
@@ -1458,6 +1560,7 @@
           else return;
         }
         fold.dy = Math.max(0, dy);
+        fold.page.style.willChange = 'transform';
         fold.page.style.transition = 'none';
         fold.page.style.transform = 'translateY(' + fold.dy + 'px)';
       },
@@ -1478,7 +1581,7 @@
           page.style.transition = 'transform 0.25s ease-out';
           page.style.transform = '';
           setTimeout(function () {
-            page.style.transition = '';
+            page.style.transition = page.style.willChange = '';
           }, 300);
         };
         const releasedAt = Date.now();
@@ -1486,6 +1589,9 @@
       } else {
         page.style.transition = 'transform 0.2s ease';
         page.style.transform = '';
+        setTimeout(function () {
+          page.style.transition = page.style.willChange = '';
+        }, 250);
       }
     };
     document.addEventListener('touchend', drop, { capture: true, passive: true });

@@ -129,7 +129,8 @@ final class WebTab: NSObject {
     messageProxy.target = self
     webView.navigationDelegate = self
     webView.uiDelegate = self
-    webView.allowsBackForwardNavigationGestures = true
+    // Music's back swipe is handled by edgeSwiped (Music's history has copies of pages).
+    webView.allowsBackForwardNavigationGestures = tab != .music && !isPlayer
     refreshControl.tintColor = .white
     refreshControl.addTarget(self, action: #selector(pulledToRefresh), for: .valueChanged)
     // Not on YouTube's player: dragging the video down is the mini player gesture.
@@ -182,17 +183,43 @@ final class WebTab: NSObject {
 
   private func setMusicPlayerOpen(_ open: Bool) {
     musicPlayerOpen = open
-    webView.allowsBackForwardNavigationGestures = !open
+    webView.allowsBackForwardNavigationGestures = tab != .music && !isPlayer && !open
     webView.scrollView.refreshControl = open ? nil : refreshControl
+  }
+
+  /// Music's history holds copies of the same page (it pushes the page again while
+  /// loading or when the player closes). Jump straight to the nearest earlier page that
+  /// is really different, in one step; with none (the app reopened on this page), home.
+  private func musicBack() {
+    func pageID(_ url: URL?) -> String {
+      guard let url, let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return "" }
+      let query = parts.queryItems ?? []
+      let list = query.first { $0.name == "list" }?.value ?? ""
+      let video = query.first { $0.name == "v" }?.value ?? ""
+      return "\(parts.path)|\(list)|\(video)"
+    }
+    let here = pageID(webView.url)
+    if let target = webView.backForwardList.backList.last(where: { pageID($0.url) != here }) {
+      webView.go(to: target)
+    } else {
+      run("home()")
+    }
   }
 
   @objc private func edgeSwiped(_ gesture: UIScreenEdgePanGestureRecognizer) {
     guard gesture.state == .ended, gesture.translation(in: webView).x > 80 else { return }
-    // Music's full player is not a page of its own: the edge swipe folds it.
-    if musicPlayerOpen { return run("back()") }
+    // Music: always ours (folds the full player, skips copies of the same page, goes home
+    // with nothing behind). YouTube: WebKit's own back swipe unless there is nothing behind.
+    if musicPlayerOpen { return run("back()") }  // folds the full player
+    if tab == .music { return musicBack() }
+    // YouTube's player: back to the previous video, or from the first one fold it into the
+    // mini player, like the app (WebKit's own back swipe does not start over the player).
+    if isPlayer {
+      if webView.canGoBack { webView.goBack() } else { owner?.minimize(self) }
+      return
+    }
     guard !webView.canGoBack else { return }
-    // Back from the player's first video: fold it into the mini player, like the app.
-    if isPlayer { owner?.minimize(self) } else { run("back()") }
+    run("back()")
   }
 
   func load(_ url: URL) {
@@ -320,16 +347,18 @@ final class WebTab: NSObject {
     if offlineView.superview != nil { retryAfterOffline() }
   }
 
-  private static let offlineErrors: Set<Int> = [
-    NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost, NSURLErrorTimedOut,
-    NSURLErrorCannotFindHost, NSURLErrorCannotConnectToHost, NSURLErrorDataNotAllowed,
-    NSURLErrorInternationalRoamingOff,
-  ]
-
   fileprivate func navigationFailed(_ error: Error) {
     let error = error as NSError
-    guard error.domain == NSURLErrorDomain, Self.offlineErrors.contains(error.code) else { return }
+    // A cancelled load (a new one replaced it) or one stopped by our own link policy is
+    // not a failure; anything else would leave a blank page, so it gets the retry screen.
+    if error.domain == NSURLErrorDomain, error.code == NSURLErrorCancelled { return }
+    if error.domain == "WebKitErrorDomain", [102, 204].contains(error.code) { return }
     showOffline(for: error.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
+  }
+
+  /// Menu › Reload: a failed page retries its address, others reload.
+  func reloadOrRetry() {
+    if offlineView.superview != nil { retryAfterOffline() } else { webView.reload() }
   }
 
   /// Pull down at the top of a page to reload it, unless something is playing there

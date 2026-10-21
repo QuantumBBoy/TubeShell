@@ -390,7 +390,8 @@ final class MainViewController: UIViewController {
     let width = min(view.bounds.width * 0.46, 240)
     let height = (width * 9 / 16).rounded()
     let minY = islandBar.frame.maxY + 10
-    let maxY = view.bounds.height - max(view.safeAreaInsets.bottom, 12) - 64 - height
+    // Clear of YouTube's bottom bar (Home / You) with some room to spare.
+    let maxY = view.bounds.height - max(view.safeAreaInsets.bottom, 12) - 76 - height
     let center = miniCenter ?? CGPoint(x: view.bounds.width - width / 2 - 12, y: maxY + height / 2)
     miniView.frame = CGRect(
       x: min(max(center.x - width / 2, 12), view.bounds.width - width - 12),
@@ -539,6 +540,16 @@ final class MainViewController: UIViewController {
     visibleWebTab(tab)?.run(command)
   }
 
+  /// Speed, quality, data saver and subtitles act on the video: on YouTube that is the
+  /// player, also while it is the mini player over the list.
+  private func runOnPlayback(_ command: String) {
+    if selectedTab == .youtube, let player = playerTab {
+      player.run(command)
+    } else {
+      runInSelectedTab(command)
+    }
+  }
+
   private func moreMenu() -> UIMenu {
     func item(_ title: String, _ symbol: String, _ command: String) -> UIAction {
       UIAction(title: title, image: UIImage(systemName: symbol)) { [weak self] _ in
@@ -560,8 +571,11 @@ final class MainViewController: UIViewController {
       }
       sections.append(UIMenu(options: .displayInline, children: shareItems))
     }
-    if selectedTab == .youtube, shareURL()?.host == "youtu.be" {
-      sections.append(item("Subtítulos", "captions.bubble", "subtitles()"))
+    if selectedTab == .youtube, playerTab != nil || shareURL()?.host == "youtu.be" {
+      sections.append(
+        UIAction(title: "Subtítulos", image: UIImage(systemName: "captions.bubble")) { [weak self] _ in
+          self?.runOnPlayback("subtitles()")
+        })
     }
     if let tab = selectedTab {
       sections.append(playbackMenu(for: tab))
@@ -586,7 +600,7 @@ final class MainViewController: UIViewController {
     sections.append(
       UIAction(title: "Recargar", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
         guard let self, let tab = self.selectedTab else { return }
-        self.visibleWebTab(tab)?.webView.reload()
+        self.visibleWebTab(tab)?.reloadOrRetry()
       })
     return UIMenu(children: sections)
   }
@@ -603,7 +617,7 @@ final class MainViewController: UIViewController {
         state: rate == currentSpeed ? .on : .off
       ) { [weak self] _ in
         defaults.set(rate, forKey: speedKey)
-        self?.runInSelectedTab("speed(\(rate))")
+        self?.runOnPlayback("speed(\(rate))")
       }
     }
     var children: [UIMenuElement] = [
@@ -619,7 +633,7 @@ final class MainViewController: UIViewController {
       ].map { value, title in
         UIAction(title: title, state: value == currentQuality ? .on : .off) { [weak self] _ in
           defaults.set(value, forKey: "TubeShell.quality")
-          self?.runInSelectedTab("quality('\(value)')")
+          self?.runOnPlayback("quality('\(value)')")
         }
       }
       let saverOn = defaults.object(forKey: "TubeShell.dataSaver") as? Bool ?? true
@@ -630,7 +644,7 @@ final class MainViewController: UIViewController {
         state: saverOn ? .on : .off
       ) { [weak self] _ in
         defaults.set(!saverOn, forKey: "TubeShell.dataSaver")
-        self?.runInSelectedTab("saver(\(!saverOn))")
+        self?.runOnPlayback("saver(\(!saverOn))")
       }
       children.append(
         UIMenu(

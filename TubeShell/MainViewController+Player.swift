@@ -7,6 +7,70 @@ import UIKit
 // it was. Dragging the video down shrinks the player into a floating mini player that
 // keeps playing; tap it to bring it back, × or flick it right to close it.
 
+/// The brightness / volume level over the fullscreen video: a glass capsule (iOS 26)
+/// with an icon and a bar, gone a moment after the last change.
+final class LevelIndicator: UIView {
+  private let icon = UIImageView()
+  private let bar = UIProgressView(progressViewStyle: .bar)
+  private var hideTimer: Timer?
+
+  init() {
+    super.init(frame: .zero)
+    isUserInteractionEnabled = false
+    alpha = 0
+    overrideUserInterfaceStyle = .dark
+    if let glass = MainViewController.glass() {
+      glass.frame = bounds
+      glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+      addSubview(glass)
+    } else {
+      backgroundColor = UIColor(white: 0.12, alpha: 0.7)
+      layer.cornerRadius = 23
+    }
+    icon.tintColor = .white
+    icon.contentMode = .center
+    icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+    bar.trackTintColor = UIColor(white: 1, alpha: 0.25)
+    bar.progressTintColor = .white
+    bar.layer.cornerRadius = 2
+    bar.clipsToBounds = true
+    let row = UIStackView(arrangedSubviews: [icon, bar])
+    row.spacing = 12
+    row.alignment = .center
+    row.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(row)
+    NSLayoutConstraint.activate([
+      icon.widthAnchor.constraint(equalToConstant: 26),
+      bar.heightAnchor.constraint(equalToConstant: 4),
+      row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+      row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+      row.centerYAnchor.constraint(equalTo: centerYAnchor),
+    ])
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  func show(brightness: Bool, level: Double) {
+    let symbol =
+      brightness ? "sun.max.fill" : level == 0 ? "speaker.slash.fill" : level < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.3.fill"
+    icon.image = UIImage(systemName: symbol)
+    bar.progress = Float(level)
+    if alpha < 1 {
+      transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
+      UIView.animate(withDuration: 0.15) {
+        self.alpha = 1
+        self.transform = .identity
+      }
+    }
+    hideTimer?.invalidate()
+    hideTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { [weak self] _ in
+      MainActor.assumeIsolated {
+        UIView.animate(withDuration: 0.25) { self?.alpha = 0 }
+      }
+    }
+  }
+}
+
 private enum MiniPlayer {
   /// Width as a share of the screen, up to maxWidth (pt).
   static let widthFraction: CGFloat = 0.46
@@ -244,8 +308,8 @@ extension MainViewController {
 
   // MARK: - Video gestures (Shields.js section 13)
 
-  /// A drag on the fullscreen video: left half brightness, right half volume. The new
-  /// level goes back to the page, which shows it (fullscreen covers the app's views).
+  /// A drag on the fullscreen video: left half brightness, right half volume, with the
+  /// level shown over the video.
   func adjust(_ kind: String, by delta: Double, in webTab: WebTab) {
     let level: Double
     if kind == "brightness" {
@@ -260,7 +324,10 @@ extension MainViewController {
     } else {
       return
     }
-    webTab.run("gestureLevel('\(kind)', \(level))")
+    if levelIndicator.superview == nil { view.addSubview(levelIndicator) }
+    view.bringSubviewToFront(levelIndicator)
+    levelIndicator.frame = CGRect(x: (view.bounds.width - 230) / 2, y: max(view.safeAreaInsets.top, 16) + 8, width: 230, height: 46)
+    levelIndicator.show(brightness: kind == "brightness", level: level)
   }
 
   // MARK: - Hiding the relayout when the player changes size

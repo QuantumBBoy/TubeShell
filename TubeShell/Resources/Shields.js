@@ -1832,71 +1832,12 @@
     document.addEventListener('touchend', release, { capture: true, passive: true });
     document.addEventListener('touchcancel', release, { capture: true, passive: true });
 
-    // Video gestures, like ReVanced: in the app's fullscreen, drag up or down on the left half for
-    // brightness and on the right half for volume (holding for 2x is YouTube's own). The app changes those and sends the level back
-    // (gestureLevel), and the page draws the indicator: fullscreen covers the app's views.
-    addCss(
-      '.tubeshell-hud { position: absolute; top: 12%; left: 50%; z-index: 2147483647; pointer-events: none;' +
-        ' display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px; color: #fff;' +
-        ' font: 600 15px -apple-system, system-ui, sans-serif; background: rgba(28,28,30,0.55);' +
-        ' -webkit-backdrop-filter: blur(18px) saturate(1.6); backdrop-filter: blur(18px) saturate(1.6);' +
-        ' box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.35); opacity: 0; transform: translateX(-50%) scale(0.92);' +
-        ' transition: opacity 0.15s ease, transform 0.15s ease; }\n' +
-        '.tubeshell-hud.on { opacity: 1; transform: translateX(-50%) scale(1); }\n' +
-        '.tubeshell-hud svg { width: 18px; height: 18px; fill: #fff; }\n' +
-        '.tubeshell-hud i { display: block; width: 120px; height: 4px; border-radius: 2px; overflow: hidden;' +
-        ' background: rgba(255,255,255,0.28); }\n' +
-        '.tubeshell-hud i b { display: block; height: 100%; background: #fff; transform-origin: left; }\n'
-    );
-    const ICONS = {
-      brightness:
-        'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM11 1h2v3h-2zM11 20h2v3h-2zM1 11h3v2H1zM20 11h3v2h-3zM4.2 5.6l1.4-1.4 2.1 2.1-1.4 1.4zM16.3 17.7l1.4-1.4 2.1 2.1-1.4 1.4zM4.2 18.4l2.1-2.1 1.4 1.4-2.1 2.1zM16.3 6.3l2.1-2.1 1.4 1.4-2.1 2.1z',
-      volume: 'M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z',
-    };
+    // Video gestures, like ReVanced: in the app's fullscreen, drag up or down on the left
+    // half for brightness and on the right half for volume (holding for 2x is YouTube's
+    // own). The app changes those and shows the level over the video.
     const fullscreenNow = function () {
       if (root.classList.contains('tubeshell-full')) return document.getElementById('player-container-id');
       return document.fullscreenElement || document.webkitFullscreenElement;
-    };
-    let hud = null;
-    let hudFill = null;
-    let hudKind = '';
-    let hudTimer = 0;
-    const showHud = function (kind, level) {
-      const host = fullscreenNow() || document.getElementById('movie_player');
-      if (!host) return;
-      if (!hud) {
-        hud = document.createElement('div');
-        hud.className = 'tubeshell-hud';
-      }
-      if (hud.parentNode !== host) host.appendChild(hud);
-      if (hudKind !== kind) {
-        hudKind = kind;
-        hud.textContent = '';
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', ICONS[kind]);
-        svg.appendChild(path);
-        hud.appendChild(svg);
-        const bar = document.createElement('i');
-        hudFill = document.createElement('b');
-        bar.appendChild(hudFill);
-        hud.appendChild(bar);
-      }
-      hudFill.style.transform = 'scaleX(' + Math.max(0, Math.min(1, level)) + ')';
-      hud.classList.add('on');
-      // Fades a moment after the last change: the app's answer to the last move can
-      // arrive after the finger has lifted.
-      hideHud(1000);
-    };
-    const hideHud = function (delay) {
-      clearTimeout(hudTimer);
-      hudTimer = setTimeout(function () {
-        if (hud) hud.classList.remove('on');
-      }, delay);
-    };
-    window.__tubeShell.gestureLevel = function (kind, level) {
-      showHud(kind, level);
     };
 
     let gesture = null;
@@ -1936,7 +1877,6 @@
       { capture: true, passive: true }
     );
     const endGesture = function () {
-      if (gesture && gesture.mode) hideHud(600);
       gesture = null;
     };
     document.addEventListener('touchend', endGesture, { capture: true, passive: true });

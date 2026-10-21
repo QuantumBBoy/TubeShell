@@ -291,6 +291,8 @@ final class MainViewController: UIViewController {
   var miniDragStart: CGPoint?
   /// Thrown to the right edge: tucked away with only a tab showing, still playing.
   var miniStashed = false
+  /// Brightness / volume level over the fullscreen video.
+  lazy var levelIndicator = LevelIndicator()
   /// The tab of a tucked-away mini player.
   let miniStashTab = UIView()
 

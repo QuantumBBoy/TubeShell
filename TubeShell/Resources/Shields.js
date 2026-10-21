@@ -23,12 +23,14 @@
 //   14. YouTube      -> fullscreen follows the iPhone's rotation
 //   15. YouTube list -> tapped videos open in the app's player
 //
+// Frames other than the page itself (embeds, iframes) only get sections 1 and 2.
+//
 // When YouTube changes something, this is the file to update.
 
 (function () {
   'use strict';
 
-  if (!/(^|\.)youtube\.com$/.test(location.hostname)) return;
+  if (!/^(m|music)\.youtube\.com$/.test(location.hostname)) return;
   if (window.__tubeShellInstalled) return;
   try {
     Object.defineProperty(window, '__tubeShellInstalled', { value: true });
@@ -37,6 +39,7 @@
   }
 
   const isTopFrame = window === window.top;
+  const isMusicHost = location.hostname === 'music.youtube.com';
 
   // Device language (set by the app): Spanish or English. Labels of the SponsorBlock
   // toast and of the Music gesture hints.
@@ -300,32 +303,47 @@
     }
   };
 
-  // Poll only while something plays: an ad is a playing video, so media events wake the
-  // timer and it stops itself after ~6 s with nothing playing (no wakeups when idle,
-  // paused, or on pages without video).
+  // Poll only while an ad shows: the player (YouTube and Music share the element) puts
+  // `ad-showing` in its class list, so a MutationObserver on that attribute starts a
+  // 300 ms poll that stops itself when the class goes. The player is found when media
+  // starts loading (it can be replaced as the single-page app navigates).
+  let adPlayer = null;
   let adTimer = 0;
-  let idleTicks = 0;
+  const adShowing = function () {
+    return Boolean(adPlayer && adPlayer.classList.contains('ad-showing'));
+  };
   const adTick = function () {
     handleAds();
-    const playing = Array.prototype.some.call(document.querySelectorAll('video, audio'), function (m) {
-      return !m.paused && !m.ended;
-    });
-    idleTicks = playing ? 0 : idleTicks + 1;
-    if (idleTicks >= 20) {
+    if (!adShowing()) {
       clearInterval(adTimer);
       adTimer = 0;
     }
   };
-  const wakeAdTimer = function () {
-    idleTicks = 0;
-    if (!adTimer) {
-      adTimer = setInterval(adTick, 300);
-      handleAds();
+  const adClassChanged = function () {
+    if (adShowing()) {
+      if (!adTimer) {
+        adTimer = setInterval(adTick, 300);
+        handleAds();
+      }
+    } else if (mutedForAd) {
+      handleAds(); // the ad is over: sound back
     }
   };
+  const adObserver = new MutationObserver(adClassChanged);
+  const watchAdPlayer = function () {
+    const player = document.querySelector('.html5-video-player');
+    if (player === adPlayer) return;
+    adPlayer = player;
+    adObserver.disconnect();
+    if (player) adObserver.observe(player, { attributes: true, attributeFilter: ['class'] });
+    adClassChanged();
+  };
   for (const type of ['play', 'playing', 'loadstart']) {
-    document.addEventListener(type, wakeAdTimer, true);
+    document.addEventListener(type, watchAdPlayer, true);
   }
+
+  // The rest is for the page itself, not for embeds and other frames.
+  if (!isTopFrame) return;
 
   // ---------------------------------------------------------------------------
   // 3. Speed and quality
@@ -497,6 +515,37 @@
     for (const type of ['play', 'volumechange']) {
       document.addEventListener(type, reportPlay, true);
     }
+
+    // Whether media is playing here, so the app can hide a covered web view that is not
+    // (WebKit pauses media in a hidden one). Feed previews (muted, outside the player page
+    // and Music) do not count. "Stopped" comes after a second of quiet, so the gap between
+    // two songs is not reported.
+    let reportedPlaying = false;
+    let idleTimer = 0;
+    const playingNow = function () {
+      return Array.prototype.some.call(document.querySelectorAll('video, audio'), function (m) {
+        return !m.paused && !m.ended && (!m.muted || isMusicHost || window.__tubeShellPlayerPage);
+      });
+    };
+    const reportState = function () {
+      clearTimeout(idleTimer);
+      if (playingNow()) {
+        if (!reportedPlaying) {
+          reportedPlaying = true;
+          post({ type: 'media', playing: true });
+        }
+        return;
+      }
+      idleTimer = setTimeout(function () {
+        if (reportedPlaying && !playingNow()) {
+          reportedPlaying = false;
+          post({ type: 'media', playing: false });
+        }
+      }, 1000);
+    };
+    for (const type of ['play', 'playing', 'pause', 'ended', 'volumechange']) {
+      document.addEventListener(type, reportState, true);
+    }
   }
 
   // Remember the second the song or video is at (the app stores it), and on reopening
@@ -516,8 +565,8 @@
       { capture: true, passive: true, once: true }
     );
     let lastReport = 0;
-    const track = function (event) {
-      const media = event.target;
+    // Saved every 30 s, on pause, and when the page is hidden or left (force).
+    const track = function (media, force) {
       if (!(media instanceof HTMLMediaElement) || media.closest('.ad-showing')) return;
       // On Music the song keeps playing folded, under another page: ask the player.
       let id = new URLSearchParams(location.search).get('v');
@@ -542,13 +591,30 @@
         }
       }
       const now = Date.now();
-      if (event.type !== 'pause' && now - lastReport < 5000) return;
+      if (!force && now - lastReport < 30000) return;
       lastReport = now;
       post({ type: 'position', v: id, t: Math.floor(media.currentTime) });
     };
     for (const type of ['loadedmetadata', 'timeupdate', 'pause']) {
-      document.addEventListener(type, track, true);
+      document.addEventListener(
+        type,
+        function (event) {
+          track(event.target, event.type === 'pause');
+        },
+        true
+      );
     }
+    const saveNow = function () {
+      track(document.querySelector('video, audio'), true);
+    };
+    window.addEventListener('pagehide', saveNow);
+    document.addEventListener(
+      'visibilitychange',
+      function () {
+        if (realVisibility() === 'hidden') saveNow();
+      },
+      true
+    );
   }
 
   // Reopening the app restores the last song or video: it must wait paused.
@@ -719,81 +785,121 @@
   // 8. Cosmetic: ad slots, Premium pop-ups, Shorts, Picture in Picture
   // ---------------------------------------------------------------------------
 
-  const css = [
-    // m.youtube.com (rules from Brave's iOS list)
-    'ytm-rich-item-renderer:has(> ad-slot-renderer)',
-    'ytm-companion-slot[data-content-type] > ytm-companion-ad-renderer',
-    'ytm-promoted-sparkles-web-renderer',
-    'ytm-promoted-video-renderer',
-    'ad-slot-renderer',
-    // music.youtube.com
-    'ytmusic-mealbar-promo-renderer',
-    // "Get the app" / Premium banners on m.youtube.com
-    'ytm-mealbar-promo-renderer',
-    'ytm-app-promo-renderer',
-    'ytm-upsell-dialog-renderer',
-    // Shorts on m.youtube.com: shelves, single entries and the bottom bar tab
-    'ytm-reel-shelf-renderer',
-    'ytm-shorts-lockup-view-model',
-    'ytm-shorts-lockup-view-model-v2',
-    'grid-shelf-view-model:has(ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2)',
-    'ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2, ytm-reel-shelf-renderer)',
-    'ytm-rich-item-renderer:has(a[href^="/shorts/"])',
-    'ytm-video-with-context-renderer:has(a[href^="/shorts/"])',
-    'ytm-pivot-bar-item-renderer:has(.pivot-shorts)',
-  ].join(',\n') + ' { display: none !important; }';
+  // Per host: m.youtube.com and music.youtube.com share no markup.
+  const css = (isMusicHost
+    ? [
+        // music.youtube.com
+        'ad-slot-renderer',
+        'ytmusic-mealbar-promo-renderer',
+      ]
+    : [
+        // m.youtube.com (rules from Brave's iOS list)
+        'ytm-rich-item-renderer:has(> ad-slot-renderer)',
+        'ytm-companion-slot[data-content-type] > ytm-companion-ad-renderer',
+        'ytm-promoted-sparkles-web-renderer',
+        'ytm-promoted-video-renderer',
+        'ad-slot-renderer',
+        // "Get the app" / Premium banners on m.youtube.com
+        'ytm-mealbar-promo-renderer',
+        'ytm-app-promo-renderer',
+        'ytm-upsell-dialog-renderer',
+        // Shorts on m.youtube.com: shelves, single entries and the bottom bar tab. The
+        // containers that hold a Short are marked by the sweep (SHORT_MARK): :has() over
+        // every feed entry is expensive.
+        'ytm-reel-shelf-renderer',
+        'ytm-shorts-lockup-view-model',
+        'ytm-shorts-lockup-view-model-v2',
+        '[data-tubeshell-short]',
+        'ytm-pivot-bar-item-renderer:has(.pivot-shorts)',
+      ]
+  ).join(',\n') + ' { display: none !important; }';
 
   addCss(css);
 
-  // Brave hides these YouTube Music dialogs by their text (English and Spanish).
+  // Brave hides these YouTube Music dialogs by their text (English and Spanish), plus the
+  // "Open in the YouTube Music app" modal.
   const PROMO_TEXT =
-    /premium|ad-free|without the ads|background play|kept playing|month free|family plan|try youtube music|sin anuncios|segundo plano|mes gratis|plan familiar|prueba youtube music/i;
+    /premium|ad-free|without the ads|background play|kept playing|month free|family plan|try youtube music|in the youtube music app|sin anuncios|segundo plano|mes gratis|plan familiar|prueba youtube music|abrir en la aplicaci[oó]n youtube music|en la app youtube music/i;
+  const NOT_NOW_TEXT = /^(not now|no thanks|ahora no|no, gracias)$/i;
 
   const OPEN_APP_TEXT = /^(open( the)? app|get the app|abrir( la)? app(licación)?|obtener la app|usar la app)$/i;
 
+  // "Open App" entries (Music's side menu, YouTube's menus): useless inside the app.
+  const OPEN_APP_ENTRIES = isMusicHost
+    ? 'ytmusic-guide-entry-renderer, ytmusic-nav-bar :is(yt-button-renderer, ytmusic-button-renderer, a.app-bar-button, button)'
+    : 'ytm-compact-link-renderer, ytm-menu-service-item-renderer';
+
+  // Marks what the stylesheet hides for Shorts (see the css above): the entry or section
+  // that holds a Short.
+  const SHORT_MARK = 'data-tubeshell-short';
+  const markShorts = function (selector, container) {
+    document.querySelectorAll(selector).forEach(function (el) {
+      const box = el.closest(container);
+      if (box && !box.hasAttribute(SHORT_MARK)) box.setAttribute(SHORT_MARK, '');
+    });
+  };
+
+  let savedSearch = '';
   const sweep = function () {
-    let hidPromo = false;
-    document.querySelectorAll('tp-yt-paper-dialog.ytmusic-popup-container').forEach(function (dialog) {
-      if (dialog.style.display !== 'none' && PROMO_TEXT.test(dialog.textContent || '')) {
+    if (isMusicHost) {
+      let hidPromo = false;
+      document.querySelectorAll('tp-yt-paper-dialog').forEach(function (dialog) {
+        if (dialog.style.display === 'none' || !PROMO_TEXT.test((dialog.textContent || '').replace(/\s+/g, ' '))) return;
+        // Dismiss it the way the user would, then hide what is left (and the backdrop).
+        const dismiss = Array.prototype.find.call(
+          dialog.querySelectorAll('button, tp-yt-paper-button, yt-button-renderer, ytmusic-button-renderer, a'),
+          function (b) {
+            return NOT_NOW_TEXT.test((b.textContent || '').trim());
+          }
+        );
         dialog.style.setProperty('display', 'none', 'important');
+        if (dismiss) dismiss.click();
         hidPromo = true;
+      });
+      if (hidPromo) {
+        // Remove the dark overlay left behind by the hidden dialog.
+        document.querySelectorAll('tp-yt-iron-overlay-backdrop').forEach(function (backdrop) {
+          backdrop.style.setProperty('display', 'none', 'important');
+        });
+      }
+
+      // "Are you still there?" on YouTube Music: answer yes.
+      document
+        .querySelectorAll('ytmusic-you-there-renderer button, ytmusic-you-there-renderer tp-yt-paper-button')
+        .forEach(function (button) {
+          button.click();
+        });
+    } else {
+      markShorts('a[href^="/shorts/"]', 'ytm-rich-item-renderer, ytm-video-with-context-renderer');
+      markShorts(
+        'ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2, ytm-reel-shelf-renderer',
+        'grid-shelf-view-model'
+      );
+      markShorts(
+        'ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2, ytm-reel-shelf-renderer',
+        'ytm-rich-section-renderer'
+      );
+
+      // A Shorts link (shared, or from a page we did not clean): open it as a normal video.
+      const short = location.pathname.match(/^\/shorts\/([\w-]{11})/);
+      if (short) location.replace('/watch?v=' + short[1]);
+    }
+
+    document.querySelectorAll(OPEN_APP_ENTRIES).forEach(function (entry) {
+      if (entry.style.display !== 'none' && OPEN_APP_TEXT.test((entry.textContent || '').trim())) {
+        entry.style.setProperty('display', 'none', 'important');
       }
     });
-    if (hidPromo) {
-      // Remove the dark overlay left behind by the hidden dialog.
-      document.querySelectorAll('tp-yt-iron-overlay-backdrop').forEach(function (backdrop) {
-        backdrop.style.setProperty('display', 'none', 'important');
-      });
-    }
-
-    // "Open App" entries (Music's side menu, YouTube's menus): useless inside the app.
-    document
-      .querySelectorAll(
-        'ytmusic-guide-entry-renderer, ytm-compact-link-renderer, ytm-menu-service-item-renderer,' +
-          ' ytmusic-nav-bar :is(yt-button-renderer, ytmusic-button-renderer, a.app-bar-button, button)'
-      )
-      .forEach(function (entry) {
-        if (entry.style.display !== 'none' && OPEN_APP_TEXT.test((entry.textContent || '').trim())) {
-          entry.style.setProperty('display', 'none', 'important');
-        }
-      });
-
-    // "Are you still there?" on YouTube Music: answer yes.
-    document
-      .querySelectorAll('ytmusic-you-there-renderer button, ytmusic-you-there-renderer tp-yt-paper-button')
-      .forEach(function (button) {
-        button.click();
-      });
 
     // Last search (/results on YouTube, /search on Music): where "back" goes when there
-    // is no page behind.
-    if (isTopFrame && (location.pathname === '/results' || location.pathname === '/search')) {
-      setPref('tubeShellLastSearch', page());
+    // is no page behind. Written only when it changed.
+    if (location.pathname === '/results' || location.pathname === '/search') {
+      const here = page();
+      if (here !== savedSearch) {
+        savedSearch = here;
+        setPref('tubeShellLastSearch', here);
+      }
     }
-
-    // A Shorts link (shared, or from a page we did not clean): open it as a normal video.
-    const short = isTopFrame && location.pathname.match(/^\/shorts\/([\w-]{11})/);
-    if (short) location.replace('/watch?v=' + short[1]);
 
     // m.youtube.com disables Picture in Picture on its videos.
     document.querySelectorAll('video[disablepictureinpicture]').forEach(function (video) {
@@ -960,13 +1066,20 @@
       .join('\n');
     if (!onMusic) {
       let lastY = 0;
+      let scrollQueued = false;
+      // scrollY is read at most once per frame.
       window.addEventListener(
         'scroll',
         function () {
-          const y = window.scrollY;
-          if (Math.abs(y - lastY) < 8) return;
-          root.classList.toggle('tubeshell-chips-hidden', y > lastY && y > 80);
-          lastY = y;
+          if (scrollQueued) return;
+          scrollQueued = true;
+          requestAnimationFrame(function () {
+            scrollQueued = false;
+            const y = window.scrollY;
+            if (Math.abs(y - lastY) < 8) return;
+            root.classList.toggle('tubeshell-chips-hidden', y > lastY && y > 80);
+            lastY = y;
+          });
         },
         { passive: true }
       );
@@ -975,9 +1088,11 @@
     addCss(headerCss);
 
     let headerTimer = 0;
-    // Music: shows the header until the page changes or its search box closes again.
+    // Music: shows the header until the page changes or its search box closes again
+    // (at most 60 s).
     const showHeaderUntilNavigation = function () {
       const shownAt = page();
+      const until = Date.now() + 60000;
       let searchWasOpen = false;
       root.classList.add('tubeshell-header');
       clearInterval(headerTimer);
@@ -985,7 +1100,7 @@
         const searchOpen = Boolean(document.querySelector('ytmusic-search-box[opened]'));
         if (searchOpen) searchWasOpen = true;
         const searchClosed = searchWasOpen && !searchOpen;
-        if (page() === shownAt && !searchClosed) return;
+        if (page() === shownAt && !searchClosed && Date.now() < until) return;
         root.classList.remove('tubeshell-header');
         clearInterval(headerTimer);
       }, 500);
@@ -1086,6 +1201,21 @@
         [0, 500, 1500, 3000].forEach(function (delay) {
           setTimeout(play, delay);
         });
+      },
+      // Opens a video in this page without reloading it: YouTube's own router follows a
+      // link clicked inside ytm-app. False when the page cannot (the app then loads it).
+      watch: function (href) {
+        const app = document.querySelector('ytm-app');
+        if (!app || typeof href !== 'string' || href.indexOf('/watch?') !== 0) return false;
+        const link = document.createElement('a');
+        link.href = href;
+        link.hidden = true;
+        app.appendChild(link);
+        link.click();
+        setTimeout(function () {
+          link.remove();
+        }, 1000);
+        return true;
       },
       // The app's floating mini player.
       // Back to full size, the player still holds the mini window's size: tell it the
@@ -1282,7 +1412,14 @@
 
     // The app reopens the last song's page at launch (remember where you were): its
     // player opens full screen by itself, which is not where the user left things.
-    const launchedOnSong = location.pathname === '/watch';
+    // Only the first page of the web view is the app reopening; later loads of a song
+    // (a link from outside, a reload) open it full size.
+    let firstPage = true;
+    try {
+      firstPage = !sessionStorage.getItem('tubeshell-started');
+      sessionStorage.setItem('tubeshell-started', '1');
+    } catch (e) {}
+    const launchedOnSong = firstPage && location.pathname === '/watch';
     const launchedAt = Date.now();
     let touchedSinceLaunch = false;
     document.addEventListener(

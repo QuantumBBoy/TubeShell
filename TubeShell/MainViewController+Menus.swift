@@ -76,6 +76,12 @@ extension MainViewController {
     if let tab = selectedTab {
       sections.append(playbackMenu(for: tab))
     }
+    if selectedTab == .music, let music = webTabs[.music] {
+      sections.append(
+        UIAction(title: L("Letra", "Lyrics"), image: UIImage(systemName: "quote.bubble")) { [weak self] _ in
+          self?.presentLyrics(from: music)
+        })
+    }
     if selectedTab == .music {
       sections.append(
         UIMenu(options: .displayInline, children: [
@@ -105,6 +111,16 @@ extension MainViewController {
         self.visibleWebTab(tab)?.reloadOrRetry()
       })
     return UIMenu(children: sections)
+  }
+
+  private func presentLyrics(from music: WebTab) {
+    guard presentedViewController == nil else { return }
+    let lyrics = LyricsViewController(page: music.webView)
+    if let sheet = lyrics.sheetPresentationController {
+      sheet.detents = [.large()]
+      sheet.prefersGrabberVisible = true
+    }
+    present(lyrics, animated: true)
   }
 
   /// Speed (both sites) and video quality (YouTube). The choice is stored here for the

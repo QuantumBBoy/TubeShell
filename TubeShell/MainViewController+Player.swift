@@ -25,6 +25,20 @@ extension MainViewController {
     return visibleWebTab(tab) === webTab
   }
 
+  /// Hides the web views another page covers (the other tab, the list under the player),
+  /// unless media plays in them: WebKit pauses media in a hidden web view, so a playing
+  /// one stays put, just covered. Called whenever what is on top changes.
+  func updateWebViewVisibility() {
+    let playerOnTop = playerTab != nil && !playerMinimized
+    for (tab, webTab) in webTabs {
+      let covered = tab != selectedTab || (tab == .youtube && playerOnTop)
+      webTab.webView.isHidden = covered && !webTab.isPlayingMedia
+    }
+    if let player = playerTab {
+      player.webView.isHidden = playerOnTop && selectedTab != .youtube && !player.isPlayingMedia
+    }
+  }
+
   /// The web view showing in a tab: YouTube's player when it is open full size.
   func visibleWebTab(_ tab: AppTab) -> WebTab? {
     if tab == .youtube, let player = playerTab, !playerMinimized { return player }
@@ -35,10 +49,12 @@ extension MainViewController {
   func openVideo(_ url: URL, autoplay: Bool = true, show: Bool = true) {
     // Opened with the iPhone already sideways: straight to fullscreen.
     let landscape = view.bounds.width > view.bounds.height
+    // Feed previews in the list keep playing under the player otherwise.
+    webTabs[.youtube]?.pauseAllMedia()
     let player: WebTab
     if let existing = playerTab {
       if playerMinimized { expandPlayer() }
-      existing.load(url)
+      existing.openInPage(url)
       player = existing
     } else {
       player = WebTab(
@@ -77,6 +93,7 @@ extension MainViewController {
     tick()
     webTab.setMini(true)
     let webView = webTab.webView
+    let cover = relayoutCover(for: webView)
     webView.removeFromSuperview()
     webView.translatesAutoresizingMaskIntoConstraints = true
     webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -85,7 +102,9 @@ extension MainViewController {
     layoutMini()
     webView.frame = miniView.bounds
     miniView.insertSubview(webView, at: 0)
+    if let cover { showCover(cover, in: miniView, above: webView, frame: miniView.bounds) }
     if selectedTab == .youtube { select(.youtube) }
+    updateWebViewVisibility()
     miniView.alpha = 0
     miniView.isHidden = false
     UIView.animate(withDuration: 0.2) { self.miniView.alpha = 1 }
@@ -159,9 +178,14 @@ extension MainViewController {
     guard let player = playerTab, playerMinimized else { return }
     playerMinimized = false
     miniView.isHidden = true
+    let cover = relayoutCover(for: player.webView)
     player.webView.removeFromSuperview()
     player.webView.isUserInteractionEnabled = true
     attach(player.webView)
+    if let cover, let host = player.webView.superview?.superview {
+      showCover(cover, in: host, above: player.webView.superview!, frame: player.webView.superview!.frame)
+    }
+    updateWebViewVisibility()
     player.setMini(false)
     if view.bounds.width > view.bounds.height { player.run("fullscreen(true)") }
   }
@@ -178,7 +202,38 @@ extension MainViewController {
     playerTab = nil
     playerMinimized = false
     miniView.isHidden = true
+    updateWebViewVisibility()
     UserDefaults.standard.removeObject(forKey: DefaultsKey.lastPlayerURL)
+  }
+
+  // MARK: - Hiding the relayout when the player changes size
+
+  /// The player's page lays itself out again when its web view goes between full screen
+  /// and the mini window. A snapshot of the old size covers that, then fades away.
+  /// (Anchored top left, so the video lands on the video.)
+  private func relayoutCover(for webView: WKWebView) -> UIView? {
+    guard webView.bounds.width > 0, let snapshot = webView.snapshotView(afterScreenUpdates: false) else { return nil }
+    let cover = UIView()
+    cover.backgroundColor = .black
+    cover.clipsToBounds = true
+    cover.isUserInteractionEnabled = false
+    snapshot.layer.anchorPoint = .zero
+    snapshot.frame = CGRect(origin: .zero, size: webView.bounds.size)
+    cover.addSubview(snapshot)
+    return cover
+  }
+
+  private func showCover(_ cover: UIView, in host: UIView, above sibling: UIView, frame: CGRect) {
+    guard let snapshot = cover.subviews.first else { return }
+    let scale = frame.width / max(snapshot.bounds.width, 1)
+    snapshot.transform = CGAffineTransform(scaleX: scale, y: scale)
+    cover.frame = frame
+    host.insertSubview(cover, aboveSubview: sibling)
+    UIView.animate(withDuration: 0.15, delay: 0.25, options: .allowUserInteraction) {
+      cover.alpha = 0
+    } completion: { _ in
+      cover.removeFromSuperview()
+    }
   }
 
   /// Where it was left, kept between the capsule and YouTube's bottom bar; first time,

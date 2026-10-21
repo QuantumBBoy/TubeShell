@@ -41,7 +41,10 @@ final class MainViewController: UIViewController {
   private let sleepButton = UIButton(type: .system)
   private let searchButton = UIButton(type: .system)
   let moreButton = UIButton(type: .system)
+  /// Fires once, at the deadline, and pauses everything.
   private var sleepTimer: Timer?
+  /// Refreshes the countdown in the capsule; runs only while the app is active.
+  private var sleepRefreshTimer: Timer?
   var sleepDeadline: Date?
   var sleepAtEndOfTrack = false
   var webTabs: [AppTab: WebTab] = [:]
@@ -107,15 +110,10 @@ final class MainViewController: UIViewController {
     allWebTabs.forEach { $0.refreshTopOffset = $0.edgeToEdge ? top : 0 }
     islandCenterY?.constant = wrapsIsland ? top / 2 + 1 : top + 4 + Capsule.height / 2
     if miniTab != nil, miniDragStart == nil { layoutMini() }
-    contentToBar.isActive = false
-    contentToTop.isActive = false
-    contentToSafeArea.isActive = false
-    if !wrapsIsland {
-      contentToBar.isActive = true
-    } else if pagesEdgeToEdge == true {
-      contentToTop.isActive = true
-    } else {
-      contentToSafeArea.isActive = true
+    let wanted = !wrapsIsland ? contentToBar! : pagesEdgeToEdge == true ? contentToTop! : contentToSafeArea!
+    if !wanted.isActive {
+      [contentToBar!, contentToTop!, contentToSafeArea!].forEach { $0.isActive = false }
+      wanted.isActive = true
     }
   }
 
@@ -129,17 +127,24 @@ final class MainViewController: UIViewController {
     view.backgroundColor = .black
     layoutViews()
     watchConnection()
+    let center = NotificationCenter.default
+    center.addObserver(self, selector: #selector(appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+    for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+      center.addObserver(self, selector: #selector(stopSleepRefreshNotification), name: name, object: nil)
+    }
 
     let savedTab = (UserDefaults.standard.object(forKey: DefaultsKey.lastTab) as? Int)
       .flatMap(AppTab.init(rawValue:))
     pendingTab = initialTab ?? savedTab ?? .music
 
-    // The rule list must be ready before the first web view is created.
+    // The rule list must be in place before the first page loads (the first web view
+    // itself is made meanwhile, see viewIsAppearing).
     Task { @MainActor [weak self] in
       let rules = await ContentRules.compile()
       guard let self else { return }
       self.ruleList = rules
       self.isReady = true
+      for webTab in self.webTabs.values { webTab.start(ruleList: rules) }
       self.select(self.pendingTab ?? .music)
       self.pendingTab = nil
       // The video that was open in the player comes back over the list, paused, the first
@@ -151,6 +156,16 @@ final class MainViewController: UIViewController {
       }
       ShortcutActions.handler = { [weak self] action in self?.perform(action) }
     }
+  }
+
+  /// The view has its safe area now (what decides edge to edge pages): start the first web
+  /// view while the content rules are still being looked up. Creating it launches WebKit's
+  /// web process, the slow part; the rules are added to it before its page loads.
+  override func viewIsAppearing(_ animated: Bool) {
+    super.viewIsAppearing(animated)
+    guard !isReady, webTabs.isEmpty else { return }
+    let tab = pendingTab ?? .music
+    _ = makeWebTab(for: tab, start: false)
   }
 
   // MARK: - Tabs
@@ -165,13 +180,15 @@ final class MainViewController: UIViewController {
       pendingPlayerURL = nil
       openVideo(url, autoplay: false, show: false)
     }
-    // Bring to front instead of hiding the other view: a hidden web view
-    // counts as "not visible" for WebKit, which can pause its playback.
+    // Bring to front; the covered views are hidden only when nothing plays in them
+    // (updateWebViewVisibility): a hidden web view counts as "not visible" for WebKit,
+    // which can pause its playback.
     contentView.bringSubviewToFront(webTab.webView)
     if tab == .youtube, let player = playerTab, !playerMinimized {
       contentView.bringSubviewToFront(player.webView)
     }
     selectedTab = tab
+    updateWebViewVisibility()
     visibleWebTab(tab)?.wasShown()
     updateSleepButton()
     pageColorDidChange(in: tab)
@@ -190,6 +207,17 @@ final class MainViewController: UIViewController {
     case .sleep(let minutes):
       select(.music)
       startSleep(minutes: minutes)
+    case .openLink(let url):
+      if url.host == "music.youtube.com" {
+        select(.music)
+        webTabs[.music]?.load(url)
+      } else if url.path == "/watch" {
+        openVideo(url)
+      } else {
+        if let player = playerTab, !playerMinimized { minimize(player) }
+        select(.youtube)
+        webTabs[.youtube]?.load(url)
+      }
     }
   }
 
@@ -247,21 +275,46 @@ final class MainViewController: UIViewController {
   func startSleep(minutes: Int) {
     cancelSleep()
     tick()
-    sleepDeadline = Date().addingTimeInterval(TimeInterval(minutes * 60))
-    // Ticks every second for the countdown; runs in the background too, because the
-    // audio background mode keeps the app alive.
-    sleepTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+    let deadline = Date().addingTimeInterval(TimeInterval(minutes * 60))
+    sleepDeadline = deadline
+    // One timer at the deadline (it fires in the background too, because the audio
+    // background mode keeps the app alive); the countdown refresh only runs on screen.
+    let timer = Timer(fire: deadline, interval: 0, repeats: false) { [weak self] _ in
       MainActor.assumeIsolated {
-        guard let self, let deadline = self.sleepDeadline else { return }
-        if deadline.timeIntervalSinceNow <= 0 {
-          self.allWebTabs.forEach { $0.pauseAllMedia() }
-          self.cancelSleep()
-        } else {
-          self.updateSleepButton()
-        }
+        guard let self else { return }
+        self.allWebTabs.forEach { $0.pauseAllMedia() }
+        self.cancelSleep()
       }
     }
+    timer.tolerance = 2
+    RunLoop.main.add(timer, forMode: .common)
+    sleepTimer = timer
+    startSleepRefresh()
     updateSleepButton()
+  }
+
+  private func startSleepRefresh() {
+    sleepRefreshTimer?.invalidate()
+    sleepRefreshTimer = nil
+    guard sleepDeadline != nil, UIApplication.shared.applicationState == .active else { return }
+    sleepRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated { self?.updateSleepButton() }
+    }
+  }
+
+  private func stopSleepRefresh() {
+    sleepRefreshTimer?.invalidate()
+    sleepRefreshTimer = nil
+  }
+
+  @objc private func stopSleepRefreshNotification() {
+    stopSleepRefresh()
+  }
+
+  @objc private func appBecameActive() {
+    guard sleepDeadline != nil else { return }
+    updateSleepButton()
+    startSleepRefresh()
   }
 
   func startSleepAtEndOfTrack() {
@@ -275,6 +328,7 @@ final class MainViewController: UIViewController {
   func cancelSleep() {
     sleepTimer?.invalidate()
     sleepTimer = nil
+    stopSleepRefresh()
     sleepDeadline = nil
     if sleepAtEndOfTrack {
       sleepAtEndOfTrack = false
@@ -357,7 +411,7 @@ final class MainViewController: UIViewController {
 
   // MARK: - Layout
 
-  private func makeWebTab(for tab: AppTab, url: URL? = nil) -> WebTab {
+  private func makeWebTab(for tab: AppTab, url: URL? = nil, start: Bool = true) -> WebTab {
     if pagesEdgeToEdge == nil {
       if #available(iOS 26.0, *) { pagesEdgeToEdge = hasIsland } else { pagesEdgeToEdge = false }
       view.setNeedsLayout()
@@ -368,7 +422,7 @@ final class MainViewController: UIViewController {
 
     attach(webTab.webView)
     webTabs[tab] = webTab
-    webTab.load(url ?? tab.startURL)
+    if start { webTab.start(ruleList: nil) }  // the rules are already in its configuration
     webTab.cellular = onCellular
     return webTab
   }

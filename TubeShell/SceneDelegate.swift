@@ -23,6 +23,21 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     window.makeKeyAndVisible()
     self.window = window
     self.mainController = controller
+    // Launched by a tube:// link.
+    open(connectionOptions.urlContexts)
+  }
+
+  /// tube:// links (from Shortcuts, other apps or Safari's address bar).
+  func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    open(URLContexts)
+  }
+
+  private func open(_ contexts: Set<UIOpenURLContext>) {
+    for context in contexts {
+      if let page = ExternalLink.page(for: context.url) {
+        ShortcutActions.send(.openLink(page))
+      }
+    }
   }
 
   // Quick action used while the app was already running in the background.

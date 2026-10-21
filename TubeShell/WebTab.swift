@@ -9,6 +9,9 @@ final class WebTab: NSObject {
   let tab: AppTab
   let webView: WKWebView
   weak var owner: MainViewController?
+  /// Media is playing in this page (reported by Shields.js): its web view must not be
+  /// hidden, or WebKit pauses it.
+  var isPlayingMedia = false
   private var urlObservation: NSKeyValueObservation?
   private var pendingCommands: [String] = []
   private var colorObservation: NSKeyValueObservation?
@@ -178,6 +181,9 @@ final class WebTab: NSObject {
             return
           }
           UserDefaults.standard.set(url.absoluteString, forKey: DefaultsKey.lastPlayerURL)
+          // A video opened inside the page (see openInPage) is not a load: nothing else
+          // would run what was queued for it.
+          if !self.webView.isLoading { self.flushPendingCommands() }
         } else if self.tab == .youtube, url.path == "/watch" {
           // The list reached a video without a tapped link: play it in the player.
           self.owner?.listOpenedVideo(self, url: url)
@@ -245,6 +251,56 @@ final class WebTab: NSObject {
     webView.load(URLRequest(url: url))
   }
 
+  /// First load of a web view made before the content rules were ready (see
+  /// MainViewController.viewIsAppearing): the rules go in before the page does.
+  private(set) var started = false
+
+  func start(ruleList: WKContentRuleList?) {
+    guard !started else { return }
+    started = true
+    if let ruleList { webView.configuration.userContentController.add(ruleList) }
+    load(startURL)
+  }
+
+  private var inPageToken = 0
+
+  /// Opens a video in the page already showing (a link clicked inside YouTube's own
+  /// router: same document, no reload, the player keeps its state). Loads it the usual
+  /// way if the page cannot, or did not move to the video within 1.5 s.
+  func openInPage(_ url: URL) {
+    guard !webView.isLoading, webView.url?.host == url.host, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    else { return load(url) }
+    parts.scheme = nil
+    parts.host = nil
+    guard let path = parts.string, let data = try? JSONEncoder().encode(path), let literal = String(data: data, encoding: .utf8)
+    else { return load(url) }
+    inPageToken += 1
+    let token = inPageToken
+    webView.evaluateJavaScript("(window.__tubeShell && window.__tubeShell.watch(\(literal))) === true") { [weak self] result, _ in
+      guard let self, token == self.inPageToken else { return }
+      if (result as? Bool) == true {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+          guard let self, token == self.inPageToken else { return }
+          if !Self.sameVideo(self.webView.url, url) {
+            self.load(url)
+          } else if !self.webView.isLoading {
+            self.flushPendingCommands()  // already on that video: no URL change to wait for
+          }
+        }
+      } else {
+        self.load(url)
+      }
+    }
+  }
+
+  private static func sameVideo(_ a: URL?, _ b: URL) -> Bool {
+    func id(_ url: URL?) -> String? {
+      guard let url else { return nil }
+      return URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "v" }?.value
+    }
+    return a?.path == b.path && id(a) == id(b)
+  }
+
   /// Runs a Shields.js command once the page now loading has finished.
   func runAfterLoad(_ command: String) {
     pendingCommands.append(command)
@@ -258,6 +314,12 @@ final class WebTab: NSObject {
       void 0;
       """
     webView.evaluateJavaScript(script, completionHandler: nil)
+  }
+
+  private func flushPendingCommands() {
+    let commands = pendingCommands
+    pendingCommands = []
+    commands.forEach(run)
   }
 
   /// Runs one of the page commands Shields.js defines on window.__tubeShell (home, back,
@@ -390,6 +452,7 @@ final class WebTab: NSObject {
   /// Keeps the spinner clear of the island when the page runs under it.
   var refreshTopOffset: CGFloat = 0 {
     didSet {
+      guard refreshTopOffset != oldValue else { return }
       refreshControl.bounds.origin.y = -refreshTopOffset
     }
   }
@@ -416,7 +479,12 @@ final class WebTab: NSObject {
 
     if type == "haptic" {
       owner?.tick()
+    } else if type == "media", let playing = body["playing"] as? Bool {
+      isPlayingMedia = playing
+      if playing { webView.isHidden = false }
     } else if type == "play" {
+      isPlayingMedia = true
+      webView.isHidden = false
       owner?.mediaDidStartPlaying(in: tab, from: self)
     } else if type == "openVideo", let link = body["url"] as? String, let url = URL(string: link) {
       owner?.openVideo(url)
@@ -534,9 +602,7 @@ extension WebTab: WKNavigationDelegate, WKUIDelegate {
     webView.isOpaque = true
     offlineView.removeFromSuperview()
     reapplyPageState()
-    let commands = pendingCommands
-    pendingCommands = []
-    commands.forEach(run)
+    flushPendingCommands()
   }
 
   /// iOS can kill the web content process during long background sessions.

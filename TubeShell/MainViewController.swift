@@ -250,10 +250,13 @@ final class MainViewController: UIViewController {
 
   /// A video tapped in the list (or reopened at launch) plays in the player, full size.
   func openVideo(_ url: URL, autoplay: Bool = true, show: Bool = true) {
+    // Opened with the iPhone already sideways: straight to fullscreen.
+    let landscape = view.bounds.width > view.bounds.height
     if let player = playerTab {
       if playerMinimized { expandPlayer() }
       player.load(url)
       if autoplay { player.runAfterLoad("startPlayback()") }
+      if landscape { player.runAfterLoad("fullscreen(true)") }
     } else {
       let player = WebTab(
         tab: .youtube, ruleList: ruleList, edgeToEdge: pagesEdgeToEdge ?? false, startURL: url,
@@ -264,6 +267,7 @@ final class MainViewController: UIViewController {
       player.load(url)
       player.cellular = onCellular
       if autoplay { player.runAfterLoad("startPlayback()") }
+      if landscape { player.runAfterLoad("fullscreen(true)") }
     }
     if show { select(.youtube) }
   }
@@ -274,6 +278,15 @@ final class MainViewController: UIViewController {
     guard list === webTabs[.youtube] else { return }
     if list.webView.canGoBack { list.webView.goBack() }
     openVideo(url)
+  }
+
+  /// The player navigated away from the video (a channel, the account page): take it
+  /// back to the video, shrink it, and open that page in the list.
+  func playerLeftVideo(_ player: WebTab, to url: URL) {
+    guard player === playerTab else { return }
+    if player.webView.canGoBack { player.webView.goBack() }
+    if !playerMinimized { minimize(player) }
+    webTabs[.youtube]?.load(url)
   }
 
   func minimize(_ webTab: WebTab) {
@@ -314,7 +327,7 @@ final class MainViewController: UIViewController {
     miniPlayButton.setImage(
       UIImage(systemName: paused ? "play.fill" : "pause.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18)),
       for: .normal)
-    miniPlayButton.accessibilityLabel = paused ? "Reanudar" : "Pausar"
+    miniPlayButton.accessibilityLabel = paused ? L("Reanudar", "Resume") : L("Pausar", "Pause")
   }
 
   /// Drag the mini player anywhere and it stays where it is let go (kept on screen).
@@ -367,6 +380,7 @@ final class MainViewController: UIViewController {
     player.webView.isUserInteractionEnabled = true
     attach(player.webView)
     player.setMini(false)
+    if view.bounds.width > view.bounds.height { player.run("fullscreen(true)") }
   }
 
   @objc private func closeMini() {
@@ -409,24 +423,24 @@ final class MainViewController: UIViewController {
     var items: [UIMenuElement] = []
     if let deadline = sleepDeadline {
       let minutes = max(1, Int(deadline.timeIntervalSinceNow / 60.0 + 0.5))
-      items.append(UIAction(title: "Quedan \(minutes) min", attributes: .disabled) { _ in })
+      items.append(UIAction(title: L("Quedan \(minutes) min", "\(minutes) min left"), attributes: .disabled) { _ in })
     } else if sleepAtEndOfTrack {
-      items.append(UIAction(title: "Se parará al acabar la canción", attributes: .disabled) { _ in })
+      items.append(UIAction(title: L("Se parará al acabar la canción", "Stops at the end of the song"), attributes: .disabled) { _ in })
     }
     if sleepDeadline != nil || sleepAtEndOfTrack {
       items.append(
-        UIAction(title: "Cancelar temporizador", image: UIImage(systemName: "xmark"), attributes: .destructive) {
+        UIAction(title: L("Cancelar temporizador", "Cancel timer"), image: UIImage(systemName: "xmark"), attributes: .destructive) {
           [weak self] _ in self?.cancelSleep()
         })
     }
     let choices = [15, 30, 45, 60].map { minutes in
-      UIAction(title: "\(minutes) minutos") { [weak self] _ in self?.startSleep(minutes: minutes) }
+      UIAction(title: L("\(minutes) minutos", "\(minutes) minutes")) { [weak self] _ in self?.startSleep(minutes: minutes) }
     }
-    let endOfTrack = UIAction(title: "Al acabar la canción") { [weak self] _ in
+    let endOfTrack = UIAction(title: L("Al acabar la canción", "At the end of the song")) { [weak self] _ in
       self?.startSleepAtEndOfTrack()
     }
     items.append(UIMenu(title: "", options: .displayInline, children: choices + [endOfTrack]))
-    return UIMenu(title: "Parar la música", children: items)
+    return UIMenu(title: L("Parar la música", "Stop the music"), children: items)
   }
 
   private func startSleep(minutes: Int) {
@@ -559,13 +573,13 @@ final class MainViewController: UIViewController {
     var sections: [UIMenuElement] = []
     if let url = shareURL() {
       var shareItems: [UIMenuElement] = [
-        UIAction(title: "Compartir", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
+        UIAction(title: L("Compartir", "Share"), image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
           self?.share(url)
         }
       ]
       if url.host == "youtu.be" {
         shareItems.append(
-          UIAction(title: "Compartir en este minuto", image: UIImage(systemName: "clock")) { [weak self] _ in
+          UIAction(title: L("Compartir en este minuto", "Share at this moment"), image: UIImage(systemName: "clock")) { [weak self] _ in
             self?.shareAtCurrentTime(url)
           })
       }
@@ -573,7 +587,7 @@ final class MainViewController: UIViewController {
     }
     if selectedTab == .youtube, playerTab != nil || shareURL()?.host == "youtu.be" {
       sections.append(
-        UIAction(title: "Subtítulos", image: UIImage(systemName: "captions.bubble")) { [weak self] _ in
+        UIAction(title: L("Subtítulos", "Subtitles"), image: UIImage(systemName: "captions.bubble")) { [weak self] _ in
           self?.runOnPlayback("subtitles()")
         })
     }
@@ -583,22 +597,28 @@ final class MainViewController: UIViewController {
     if selectedTab == .music {
       sections.append(
         UIMenu(options: .displayInline, children: [
-          item("Inicio", "house", "go(0)"),
-          item("Explorar", "safari", "go(1)"),
-          item("Biblioteca", "books.vertical", "go(2)"),
-          item("Historial", "clock.arrow.circlepath", "history()"),
+          item(L("Inicio", "Home"), "house", "go(0)"),
+          item(L("Explorar", "Explore"), "safari", "go(1)"),
+          item(L("Biblioteca", "Library"), "books.vertical", "go(2)"),
+          item(L("Historial", "History"), "clock.arrow.circlepath", "history()"),
         ]))
     }
     sections.append(
       UIMenu(options: .displayInline, children: [
-        item("Cuenta y ajustes", "person.crop.circle", "account()")
+        UIAction(title: L("Cuenta y ajustes", "Account and settings"), image: UIImage(systemName: "person.crop.circle")) {
+          [weak self] _ in
+          guard let self else { return }
+          // From a video: it shrinks into the mini player and the account opens in the list.
+          if self.selectedTab == .youtube, let player = self.playerTab, !self.playerMinimized { self.minimize(player) }
+          self.runInSelectedTab("account()")
+        }
       ]))
     sections.append(
       UIAction(title: "AirPlay", image: UIImage(systemName: "airplayvideo")) { [weak self] _ in
         self?.showAirPlayPicker()
       })
     sections.append(
-      UIAction(title: "Recargar", image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
+      UIAction(title: L("Recargar", "Reload"), image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
         guard let self, let tab = self.selectedTab else { return }
         self.visibleWebTab(tab)?.reloadOrRetry()
       })
@@ -613,7 +633,7 @@ final class MainViewController: UIViewController {
     let currentSpeed = defaults.object(forKey: speedKey) as? Double ?? 1
     let speeds = [0.75, 1, 1.25, 1.5, 2].map { rate in
       UIAction(
-        title: rate == 1 ? "Normal" : "\(rate.formatted())×",
+        title: rate == 1 ? L("Normal", "Normal") : "\(rate.formatted())×",
         state: rate == currentSpeed ? .on : .off
       ) { [weak self] _ in
         defaults.set(rate, forKey: speedKey)
@@ -621,15 +641,15 @@ final class MainViewController: UIViewController {
       }
     }
     var children: [UIMenuElement] = [
-      UIMenu(title: "Velocidad", image: UIImage(systemName: "gauge.with.dots.needle.67percent"), children: speeds),
+      UIMenu(title: L("Velocidad", "Speed"), image: UIImage(systemName: "gauge.with.dots.needle.67percent"), children: speeds),
     ]
     if tab == .youtube {
       let currentQuality = defaults.string(forKey: "TubeShell.quality") ?? "hd720"
       // Without Premium YouTube still serves up to 4K (VP9/AV1, decoded in hardware);
       // the video falls back to its best if it has less.
       let qualities = [
-        ("auto", "Automática"), ("hd720", "720p"), ("hd1080", "1080p"),
-        ("hd1440", "1440p (2K)"), ("hd2160", "2160p (4K)"), ("max", "Máxima"),
+        ("auto", L("Automática", "Auto")), ("hd720", "720p"), ("hd1080", "1080p"),
+        ("hd1440", "1440p (2K)"), ("hd2160", "2160p (4K)"), ("max", L("Máxima", "Maximum")),
       ].map { value, title in
         UIAction(title: title, state: value == currentQuality ? .on : .off) { [weak self] _ in
           defaults.set(value, forKey: "TubeShell.quality")
@@ -638,8 +658,8 @@ final class MainViewController: UIViewController {
       }
       let saverOn = defaults.object(forKey: "TubeShell.dataSaver") as? Bool ?? true
       let saver = UIAction(
-        title: "Ahorro de datos",
-        subtitle: onCellular ? "480p con datos móviles · ahora activo" : "480p con datos móviles",
+        title: L("Ahorro de datos", "Data saver"),
+        subtitle: onCellular ? L("480p con datos móviles · ahora activo", "480p on mobile data · on now") : L("480p con datos móviles", "480p on mobile data"),
         image: UIImage(systemName: "antenna.radiowaves.left.and.right"),
         state: saverOn ? .on : .off
       ) { [weak self] _ in
@@ -648,7 +668,7 @@ final class MainViewController: UIViewController {
       }
       children.append(
         UIMenu(
-          title: "Calidad", image: UIImage(systemName: "sparkles.tv"),
+          title: L("Calidad", "Quality"), image: UIImage(systemName: "sparkles.tv"),
           children: qualities + [UIMenu(options: .displayInline, children: [saver])]))
     }
     return UIMenu(options: .displayInline, children: children)
@@ -742,7 +762,7 @@ final class MainViewController: UIViewController {
       UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20)),
       for: .normal)
     close.tintColor = UIColor(white: 1, alpha: 0.9)
-    close.accessibilityLabel = "Cerrar"
+    close.accessibilityLabel = L("Cerrar", "Close")
     close.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
     close.autoresizingMask = [.flexibleLeftMargin, .flexibleBottomMargin]
     close.addTarget(self, action: #selector(closeMini), for: .touchUpInside)
@@ -797,7 +817,7 @@ final class MainViewController: UIViewController {
     NSLayoutConstraint.activate(tabButtonConstraints)
 
     sleepButton.translatesAutoresizingMaskIntoConstraints = false
-    sleepButton.accessibilityLabel = "Temporizador para dormir"
+    sleepButton.accessibilityLabel = L("Temporizador para dormir", "Sleep timer")
     sleepButton.showsMenuAsPrimaryAction = true
     sleepButton.preferredMenuElementOrder = .fixed
     // Rebuilt right before it opens, so "Quedan N min" is current.
@@ -815,7 +835,7 @@ final class MainViewController: UIViewController {
     searchButton.translatesAutoresizingMaskIntoConstraints = false
     searchButton.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: symbol), for: .normal)
     searchButton.tintColor = .white
-    searchButton.accessibilityLabel = "Buscar"
+    searchButton.accessibilityLabel = L("Buscar", "Search")
     searchButton.addAction(UIAction { [weak self] _ in self?.presentSearch(voice: false) }, for: .touchUpInside)
     // Hold to search by voice.
     searchButton.addGestureRecognizer(
@@ -825,7 +845,7 @@ final class MainViewController: UIViewController {
     moreButton.translatesAutoresizingMaskIntoConstraints = false
     moreButton.setImage(UIImage(systemName: "ellipsis", withConfiguration: symbol), for: .normal)
     moreButton.tintColor = .white
-    moreButton.accessibilityLabel = "Más"
+    moreButton.accessibilityLabel = L("Más", "More")
     moreButton.showsMenuAsPrimaryAction = true
     moreButton.preferredMenuElementOrder = .fixed
     moreButton.menu = moreMenu()
@@ -896,7 +916,9 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
   private var recents: [String]
   private var recentsKey: String { "TubeShell.recentSearches.\(searchTab.rawValue)" }
 
-  private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "es-ES"))
+  // Dictation in the device language (falls back to Spanish if it has no recognizer).
+  private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: Locale.preferredLanguages.first ?? "es-ES"))
+    ?? SFSpeechRecognizer(locale: Locale(identifier: "es-ES"))
   private let audioEngine = AVAudioEngine()
   private var recognition: SFSpeechRecognitionTask?
   private var silenceTimer: Timer?
@@ -915,7 +937,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
     super.viewDidLoad()
     overrideUserInterfaceStyle = .dark
     searchBar.delegate = self
-    searchBar.placeholder = searchTab == .music ? "Buscar en Music" : "Buscar en YouTube"
+    searchBar.placeholder = searchTab == .music ? L("Buscar en Music", "Search Music") : L("Buscar en YouTube", "Search YouTube")
     searchBar.showsBookmarkButton = true
     searchBar.setImage(UIImage(systemName: "mic.fill"), for: .bookmark, state: .normal)
     searchBar.returnKeyType = .search
@@ -973,7 +995,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
   }
 
   override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-    recents.isEmpty ? nil : "Recientes"
+    recents.isEmpty ? nil : L("Recientes", "Recent")
   }
 
   override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -1011,7 +1033,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
   }
 
   private func voiceUnavailable() {
-    searchBar.placeholder = "Permite el micrófono en Ajustes › Tube"
+    searchBar.placeholder = L("Permite el micrófono en Ajustes › Tube", "Allow the microphone in Settings › Tube")
     searchBar.becomeFirstResponder()
   }
 
@@ -1033,7 +1055,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
 
     searchBar.resignFirstResponder()
     searchBar.text = ""
-    searchBar.placeholder = "Escuchando…"
+    searchBar.placeholder = L("Escuchando…", "Listening…")
     searchBar.setImage(UIImage(systemName: "mic.circle.fill"), for: .bookmark, state: .normal)
     recognition = recognizer.recognitionTask(with: request) { result, error in
       DispatchQueue.main.async {
@@ -1065,7 +1087,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
     audioEngine.inputNode.removeTap(onBus: 0)
     // Back to the media player session (background audio).
     try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
-    searchBar.placeholder = searchTab == .music ? "Buscar en Music" : "Buscar en YouTube"
+    searchBar.placeholder = searchTab == .music ? L("Buscar en Music", "Search Music") : L("Buscar en YouTube", "Search YouTube")
     searchBar.setImage(UIImage(systemName: "mic.fill"), for: .bookmark, state: .normal)
   }
 }

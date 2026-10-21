@@ -60,7 +60,7 @@ final class WebTab: NSObject {
       controller.add(ruleList)
     }
     // Device language for Shields.js's own labels (Spanish or English).
-    let language = Locale.preferredLanguages.first?.hasPrefix("es") == true ? "es" : "en"
+    let language = deviceIsSpanish ? "es" : "en"
     controller.addUserScript(
       WKUserScript(
         source: "window.__tubeShellLang = '\(language)';",
@@ -74,6 +74,19 @@ final class WebTab: NSObject {
       controller.addUserScript(
         WKUserScript(
           source: "window.__tubeShellEdgeToEdge = true;",
+          injectionTime: .atDocumentStart,
+          forMainFrameOnly: true,
+          in: .page
+        )
+      )
+    }
+    // Music reopened on the folded song: the page to go back to under the mini player.
+    if tab == .music, startURL.path == "/watch", let back = AppTab.musicReturnPath,
+      let data = try? JSONEncoder().encode(back), let literal = String(data: data, encoding: .utf8)
+    {
+      controller.addUserScript(
+        WKUserScript(
+          source: "window.__tubeShellReturnTo = \(literal);",
           injectionTime: .atDocumentStart,
           forMainFrameOnly: true,
           in: .page
@@ -158,6 +171,12 @@ final class WebTab: NSObject {
       MainActor.assumeIsolated {
         guard let self, let url = webView.url, AppTab.preferred(for: url) == self.tab else { return }
         if self.isPlayer {
+          // A channel, account page, etc. opened from the video goes to the list, the video
+          // shrinking into the mini player, like the app.
+          if url.path != "/watch", !url.path.hasPrefix("/shorts/") {
+            self.owner?.playerLeftVideo(self, to: url)
+            return
+          }
           UserDefaults.standard.set(url.absoluteString, forKey: AppTab.lastPlayerURLKey)
         } else if self.tab == .youtube, url.path == "/watch" {
           // The list reached a video without a tapped link: play it in the player.
@@ -297,17 +316,17 @@ final class WebTab: NSObject {
       image: UIImage(systemName: "wifi.slash", withConfiguration: UIImage.SymbolConfiguration(pointSize: 44, weight: .medium)))
     icon.tintColor = .secondaryLabel
     let title = UILabel()
-    title.text = "Sin conexión"
+    title.text = L("Sin conexión", "No connection")
     title.font = .preferredFont(forTextStyle: .title2).withSize(22)
     title.textColor = .label
     let detail = UILabel()
-    detail.text = "Comprueba tu conexión a internet. La página se cargará sola al volver."
+    detail.text = L("Comprueba tu conexión a internet. La página se cargará sola al volver.", "Check your internet connection. The page reloads by itself when it is back.")
     detail.font = .preferredFont(forTextStyle: .subheadline)
     detail.textColor = .secondaryLabel
     detail.numberOfLines = 0
     detail.textAlignment = .center
     var config = UIButton.Configuration.filled()
-    config.title = "Reintentar"
+    config.title = L("Reintentar", "Try again")
     config.cornerStyle = .capsule
     config.baseBackgroundColor = .white
     config.baseForegroundColor = .black

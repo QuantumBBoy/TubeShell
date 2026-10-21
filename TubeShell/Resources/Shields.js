@@ -462,7 +462,13 @@
     const track = function (event) {
       const media = event.target;
       if (!(media instanceof HTMLMediaElement) || media.closest('.ad-showing')) return;
-      const id = new URLSearchParams(location.search).get('v');
+      // On Music the song keeps playing folded, under another page: ask the player.
+      let id = new URLSearchParams(location.search).get('v');
+      if (!id && location.hostname === 'music.youtube.com') {
+        try {
+          id = document.getElementById('movie_player').getVideoData().video_id;
+        } catch (e) {}
+      }
       if (!id || !isFinite(media.duration)) return;
 
       if (resumeAt && !resumed && resumeAt.v === id) {
@@ -1248,6 +1254,33 @@
     if (document.documentElement) addLyricsStyle();
     else document.addEventListener('DOMContentLoaded', addLyricsStyle, { once: true });
 
+    // Music's own in-app navigation (no reload, the song keeps its place in the mini
+    // player): the endpoint its links carry, built from a page address.
+    const navigateMusic = function (path) {
+      let url;
+      try {
+        url = new URL(path, location.origin);
+      } catch (e) {
+        return;
+      }
+      const p = url.pathname;
+      let endpoint = null;
+      if (p === '/playlist' && url.searchParams.get('list')) {
+        endpoint = { browseEndpoint: { browseId: 'VL' + url.searchParams.get('list') } };
+      } else if (/^\/(browse|channel)\//.test(p)) {
+        endpoint = { browseEndpoint: { browseId: decodeURIComponent(p.split('/')[2]) } };
+      } else if (p === '/explore') {
+        endpoint = { browseEndpoint: { browseId: 'FEmusic_explore' } };
+      } else if (p === '/library') {
+        endpoint = { browseEndpoint: { browseId: 'FEmusic_library_landing' } };
+      } else if (p === '/search' && url.searchParams.get('q')) {
+        endpoint = { searchEndpoint: { query: url.searchParams.get('q') } };
+      }
+      const app = document.querySelector('ytmusic-app');
+      if (!endpoint || !app) return;
+      app.dispatchEvent(new CustomEvent('yt-navigate', { bubbles: true, composed: true, detail: { endpoint: endpoint } }));
+    };
+
     // The app reopens the last song's page at launch (remember where you were): its
     // player opens full screen by itself, which is not where the user left things.
     const launchedOnSong = location.pathname === '/watch';
@@ -1273,6 +1306,14 @@
       try {
         window.webkit.messageHandlers.tubeshell.postMessage({ type: 'musicPlayer', open });
       } catch (e) {}
+      if (!open && window.__tubeShellReturnTo) {
+        // Folded at launch: back to the page the song was playing over.
+        const back = window.__tubeShellReturnTo;
+        window.__tubeShellReturnTo = null;
+        setTimeout(function () {
+          navigateMusic(back);
+        }, 150);
+      }
       if (open && restoringSong()) {
         // Reopened at launch on the last song: fold it into the mini player, paused.
         // Music ignores the fold until its player has finished setting up: keep trying.

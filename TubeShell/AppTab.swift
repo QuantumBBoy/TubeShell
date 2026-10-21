@@ -35,6 +35,11 @@ enum AppTab: Int, CaseIterable {
   static let lastPlayerURLKey = "TubeShell.lastPlayerURL"
 
   var startURL: URL {
+    // Music with a song in the mini player when the app was closed: reopen the song (it
+    // folds itself and the page it was on comes back, see musicReturnPath).
+    if self == .music, let song = lastMusicSong, Self.musicReturnPath != nil {
+      return URL(string: "https://music.youtube.com/watch?v=\(song)")!
+    }
     if let saved = UserDefaults.standard.string(forKey: lastURLKey),
       let url = URL(string: saved),
       AppTab.preferred(for: url) == self,
@@ -44,6 +49,25 @@ enum AppTab: Int, CaseIterable {
       return url
     }
     return homeURL
+  }
+
+  /// The last song heard in Music (saved with its second while it plays, also folded).
+  private var lastMusicSong: String? {
+    guard let saved = UserDefaults.standard.dictionary(forKey: AppTab.music.lastPositionKey),
+      let id = saved["v"] as? String,
+      id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
+    else { return nil }
+    return id
+  }
+
+  /// The Music page that was showing under the folded song (path and query), or nil when
+  /// it was the song itself or home.
+  static var musicReturnPath: String? {
+    guard let saved = UserDefaults.standard.string(forKey: AppTab.music.lastURLKey),
+      let url = URLComponents(string: saved), url.host == "music.youtube.com",
+      url.path != "/watch", url.path != "/", !url.path.isEmpty
+    else { return nil }
+    return url.path + (url.percentEncodedQuery.map { "?" + $0 } ?? "")
   }
 
   /// Must match UIApplicationShortcutItemType in Info.plist.
@@ -70,4 +94,11 @@ enum AppTab: Int, CaseIterable {
     }
     return nil
   }
+}
+
+/// The app's own labels follow the device language: Spanish, else English.
+let deviceIsSpanish = Locale.preferredLanguages.first?.hasPrefix("es") == true
+
+func L(_ spanish: String, _ english: String) -> String {
+  deviceIsSpanish ? spanish : english
 }

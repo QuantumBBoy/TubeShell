@@ -4,6 +4,15 @@ import Speech
 import UIKit
 @preconcurrency import WebKit
 
+/// Capsule dimensions (pt).
+private enum Capsule {
+  /// The Dynamic Island itself.
+  static let islandWidth: CGFloat = 126
+  /// What the capsule adds on each side of it.
+  static let lobeWidth: CGFloat = 108
+  static let height: CGFloat = 37
+}
+
 /// Full-screen container with one web view per tab. The tab switcher and the sleep timer
 /// live in a black capsule that extends the Dynamic Island to both sides.
 /// Both web views stay alive, so switching tabs never reloads or stops the music.
@@ -13,7 +22,7 @@ final class MainViewController: UIViewController {
   var initialTab: AppTab?
 
   private let contentView = UIView()
-  private let islandBar = UIView()
+  let islandBar = UIView()
   private var islandCenterY: NSLayoutConstraint?
   /// Where the web views start: the top edge (pages run under the island), the safe area,
   /// or below the capsule when it is a bar (no Dynamic Island, or landscape).
@@ -21,7 +30,7 @@ final class MainViewController: UIViewController {
   private var contentToSafeArea: NSLayoutConstraint!
   private var contentToBar: NSLayoutConstraint!
   /// Decided when the first web view is made; both tabs share it.
-  private var pagesEdgeToEdge: Bool?
+  var pagesEdgeToEdge: Bool?
   private let tabSwitch = UISegmentedControl(
     items: AppTab.allCases.map { tab in
       let image = UIImage(systemName: tab.symbolName)!
@@ -31,19 +40,20 @@ final class MainViewController: UIViewController {
   )
   private let sleepButton = UIButton(type: .system)
   private let searchButton = UIButton(type: .system)
-  private let moreButton = UIButton(type: .system)
+  let moreButton = UIButton(type: .system)
   private var sleepTimer: Timer?
-  private var sleepDeadline: Date?
-  private var sleepAtEndOfTrack = false
-  private var webTabs: [AppTab: WebTab] = [:]
-  private var ruleList: WKContentRuleList?
+  var sleepDeadline: Date?
+  var sleepAtEndOfTrack = false
+  var webTabs: [AppTab: WebTab] = [:]
+  var ruleList: WKContentRuleList?
   private var isReady = false
   private var pendingTab: AppTab?
-  private var selectedTab: AppTab?
-
-  private static let lastTabKey = "TubeShell.lastTab"
+  var selectedTab: AppTab?
 
   // MARK: - Haptics, rotation, connection
+
+  /// Keyboard height assumed when sizing the search sheet (pt, iPhone).
+  private static let keyboardHeight: CGFloat = 330
 
   private let haptic = UIImpactFeedbackGenerator(style: .light)
 
@@ -59,23 +69,25 @@ final class MainViewController: UIViewController {
     player.run("fullscreen(\(size.width > size.height))")
   }
 
+  /// Every web view: the tabs' and, when open, the YouTube player.
+  private var allWebTabs: [WebTab] { Array(webTabs.values) + [playerTab].compactMap { $0 } }
+
   private let pathMonitor = NWPathMonitor()
   /// Mobile data or iOS Low Data Mode: the data saver caps YouTube at 480p (Shields.js).
-  private var onCellular = false
+  var onCellular = false
 
   private func watchConnection() {
     pathMonitor.pathUpdateHandler = { [weak self] path in
       let cellular = path.isExpensive || path.isConstrained
-      DispatchQueue.main.async {
+      // The monitor runs on the main queue (see start below).
+      MainActor.assumeIsolated {
         guard let self else { return }
         if path.status == .satisfied {
-          (Array(self.webTabs.values) + [self.playerTab].compactMap { $0 }).forEach { $0.connectionRestored() }
+          self.allWebTabs.forEach { $0.connectionRestored() }
         }
         guard cellular != self.onCellular else { return }
         self.onCellular = cellular
-        (Array(self.webTabs.values) + [self.playerTab].compactMap { $0 }).forEach {
-          $0.cellular = cellular
-        }
+        self.allWebTabs.forEach { $0.cellular = cellular }
       }
     }
     pathMonitor.start(queue: .main)
@@ -92,8 +104,8 @@ final class MainViewController: UIViewController {
     // status area instead, with the pages below it.
     let top = view.safeAreaInsets.top
     let wrapsIsland = hasIsland
-    (Array(webTabs.values) + [playerTab].compactMap { $0 }).forEach { $0.refreshTopOffset = $0.edgeToEdge ? top : 0 }
-    islandCenterY?.constant = wrapsIsland ? top / 2 + 1 : top + 4 + 18.5
+    allWebTabs.forEach { $0.refreshTopOffset = $0.edgeToEdge ? top : 0 }
+    islandCenterY?.constant = wrapsIsland ? top / 2 + 1 : top + 4 + Capsule.height / 2
     if miniTab != nil, miniDragStart == nil { layoutMini() }
     contentToBar.isActive = false
     contentToTop.isActive = false
@@ -118,7 +130,7 @@ final class MainViewController: UIViewController {
     layoutViews()
     watchConnection()
 
-    let savedTab = (UserDefaults.standard.object(forKey: Self.lastTabKey) as? Int)
+    let savedTab = (UserDefaults.standard.object(forKey: DefaultsKey.lastTab) as? Int)
       .flatMap(AppTab.init(rawValue:))
     pendingTab = initialTab ?? savedTab ?? .music
 
@@ -133,7 +145,7 @@ final class MainViewController: UIViewController {
       // The video that was open in the player comes back over the list, paused, the first
       // time YouTube is shown. Made at launch while on Music, YouTube would start it in the
       // background after the hold (and that stops the music).
-      if let saved = UserDefaults.standard.string(forKey: AppTab.lastPlayerURLKey) {
+      if let saved = UserDefaults.standard.string(forKey: DefaultsKey.lastPlayerURL) {
         self.pendingPlayerURL = URL(string: saved)
         if self.selectedTab == .youtube { self.select(.youtube) }
       }
@@ -164,7 +176,7 @@ final class MainViewController: UIViewController {
     updateSleepButton()
     pageColorDidChange(in: tab)
     tabSwitch.selectedSegmentIndex = tab.rawValue
-    UserDefaults.standard.set(tab.rawValue, forKey: Self.lastTabKey)
+    UserDefaults.standard.set(tab.rawValue, forKey: DefaultsKey.lastTab)
   }
 
   /// Siri / Shortcuts.
@@ -217,233 +229,22 @@ final class MainViewController: UIViewController {
     }
   }
 
-  // MARK: - YouTube player and mini player
-  // YouTube videos open in their own web view (the "player") over the list, like the
-  // app: the list (home, search, channel) never leaves its page, so it stays exactly where
-  // it was. Dragging the video down shrinks the player into a floating mini player that
-  // keeps playing; tap it to bring it back, × or flick it right to close it.
+  // MARK: - YouTube player and mini player (state; the behaviour is in MainViewController+Player.swift)
 
-  private let miniView = UIView()
-  private let miniPlayButton = UIButton(type: .system)
-  private var playerTab: WebTab?
-  private var playerMinimized = false
+  let miniView = UIView()
+  let miniPlayButton = UIButton(type: .system)
+  var playerTab: WebTab?
+  var playerMinimized = false
   /// Video to reopen in the player once YouTube is shown (see viewDidLoad).
-  private var pendingPlayerURL: URL?
+  var pendingPlayerURL: URL?
   /// Where the mini player was left (its centre); nil = bottom right.
-  private var miniCenter: CGPoint?
+  var miniCenter: CGPoint?
   /// Centre when a drag began; while dragging, layout passes leave the frame alone.
-  private var miniDragStart: CGPoint?
-  private var miniTab: WebTab? { playerMinimized ? playerTab : nil }
-
-  /// On screen now: the visible tab's page, or the player in the mini window.
-  func isShowing(_ webTab: WebTab) -> Bool {
-    if webTab === playerTab && playerMinimized { return true }
-    guard let tab = selectedTab else { return false }
-    return visibleWebTab(tab) === webTab
-  }
-
-  /// The web view showing in a tab: YouTube's player when it is open full size.
-  private func visibleWebTab(_ tab: AppTab) -> WebTab? {
-    if tab == .youtube, let player = playerTab, !playerMinimized { return player }
-    return webTabs[tab]
-  }
-
-  /// A video tapped in the list (or reopened at launch) plays in the player, full size.
-  func openVideo(_ url: URL, autoplay: Bool = true, show: Bool = true) {
-    // Opened with the iPhone already sideways: straight to fullscreen.
-    let landscape = view.bounds.width > view.bounds.height
-    if let player = playerTab {
-      if playerMinimized { expandPlayer() }
-      player.load(url)
-      if autoplay { player.runAfterLoad("startPlayback()") }
-      if landscape { player.runAfterLoad("fullscreen(true)") }
-    } else {
-      let player = WebTab(
-        tab: .youtube, ruleList: ruleList, edgeToEdge: pagesEdgeToEdge ?? false, startURL: url,
-        isPlayer: true, autoplay: autoplay)
-      player.owner = self
-      attach(player.webView)
-      playerTab = player
-      player.load(url)
-      player.cellular = onCellular
-      if autoplay { player.runAfterLoad("startPlayback()") }
-      if landscape { player.runAfterLoad("fullscreen(true)") }
-    }
-    if show { select(.youtube) }
-  }
-
-  /// The list reached a video by itself (not a tapped link): play it in the player and
-  /// take the list back to where it was.
-  func listOpenedVideo(_ list: WebTab, url: URL) {
-    guard list === webTabs[.youtube] else { return }
-    if list.webView.canGoBack { list.webView.goBack() }
-    openVideo(url)
-  }
-
-  /// The player navigated away from the video (a channel, the account page): take it
-  /// back to the video, shrink it, and open that page in the list.
-  func playerLeftVideo(_ player: WebTab, to url: URL) {
-    guard player === playerTab else { return }
-    if player.webView.canGoBack { player.webView.goBack() }
-    if !playerMinimized { minimize(player) }
-    webTabs[.youtube]?.load(url)
-  }
-
-  func minimize(_ webTab: WebTab) {
-    guard webTab === playerTab, !playerMinimized else { return }
-    tick()
-    webTab.setMini(true)
-    let webView = webTab.webView
-    webView.removeFromSuperview()
-    webView.translatesAutoresizingMaskIntoConstraints = true
-    webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    webView.isUserInteractionEnabled = false
-    playerMinimized = true
-    layoutMini()
-    webView.frame = miniView.bounds
-    miniView.insertSubview(webView, at: 0)
-    if selectedTab == .youtube { select(.youtube) }
-    miniView.alpha = 0
-    miniView.isHidden = false
-    UIView.animate(withDuration: 0.2) { self.miniView.alpha = 1 }
-    refreshMiniPlayButton()
-  }
-
-  /// Pause / resume the video in the mini player.
-  @objc private func toggleMiniPlayback() {
-    let js = "(() => { const v = document.querySelector('video'); if (!v) return null; if (v.paused) v.play(); else v.pause(); return v.paused; })()"
-    miniTab?.webView.evaluateJavaScript(js) { [weak self] result, _ in
-      self?.setMiniPlayButton(paused: (result as? Bool) ?? false)
-    }
-  }
-
-  private func refreshMiniPlayButton() {
-    miniTab?.webView.evaluateJavaScript("(document.querySelector('video') || {}).paused === true") { [weak self] result, _ in
-      self?.setMiniPlayButton(paused: (result as? Bool) ?? false)
-    }
-  }
-
-  private func setMiniPlayButton(paused: Bool) {
-    miniPlayButton.setImage(
-      UIImage(systemName: paused ? "play.fill" : "pause.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18)),
-      for: .normal)
-    miniPlayButton.accessibilityLabel = paused ? L("Reanudar", "Resume") : L("Pausar", "Pause")
-  }
-
-  /// Drag the mini player anywhere and it stays where it is let go (kept on screen).
-  /// Pushed well past the right edge, or flicked right at the edge, it closes.
-  @objc private func miniPanned(_ pan: UIPanGestureRecognizer) {
-    let move = pan.translation(in: view)
-    switch pan.state {
-    case .began:
-      miniDragStart = miniView.center
-    case .changed:
-      guard let start = miniDragStart else { return }
-      miniView.center = CGPoint(x: start.x + move.x, y: start.y + move.y)
-    case .ended, .cancelled:
-      guard miniDragStart != nil else { return }
-      miniDragStart = nil
-      let velocity = pan.velocity(in: view)
-      let frame = miniView.frame
-      let pastEdge = frame.maxX - view.bounds.width
-      if pastEdge > frame.width * 0.35 || (pastEdge > 0 && velocity.x > 900) {
-        UIView.animate(withDuration: 0.2) {
-          self.miniView.frame.origin.x = self.view.bounds.width
-          self.miniView.alpha = 0
-        } completion: { _ in
-          self.closeMini()
-          self.miniView.alpha = 1
-        }
-        return
-      }
-      miniCenter = miniView.center
-      UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4) {
-        self.layoutMini()
-      }
-    default:
-      break
-    }
-  }
-
-  @objc private func restoreMini() {
-    guard playerMinimized else { return }
-    tick()
-    expandPlayer()
-    select(.youtube)
-  }
-
-  private func expandPlayer() {
-    guard let player = playerTab, playerMinimized else { return }
-    playerMinimized = false
-    miniView.isHidden = true
-    player.webView.removeFromSuperview()
-    player.webView.isUserInteractionEnabled = true
-    attach(player.webView)
-    player.setMini(false)
-    if view.bounds.width > view.bounds.height { player.run("fullscreen(true)") }
-  }
-
-  @objc private func closeMini() {
-    closePlayer()
-  }
-
-  /// Gone for good: the next tapped video opens a new player.
-  private func closePlayer() {
-    guard let player = playerTab else { return }
-    player.pauseAllMedia()
-    player.webView.removeFromSuperview()
-    playerTab = nil
-    playerMinimized = false
-    miniView.isHidden = true
-    UserDefaults.standard.removeObject(forKey: AppTab.lastPlayerURLKey)
-  }
-
-  /// Where it was left, kept between the capsule and YouTube's bottom bar; first time,
-  /// bottom right.
-  private func layoutMini() {
-    let width = min(view.bounds.width * 0.46, 240)
-    let height = (width * 9 / 16).rounded()
-    let minY = islandBar.frame.maxY + 10
-    // Clear of YouTube's bottom bar (Home / You) with some room to spare.
-    let maxY = view.bounds.height - max(view.safeAreaInsets.bottom, 12) - 76 - height
-    let center = miniCenter ?? CGPoint(x: view.bounds.width - width / 2 - 12, y: maxY + height / 2)
-    miniView.frame = CGRect(
-      x: min(max(center.x - width / 2, 12), view.bounds.width - width - 12),
-      y: min(max(center.y - height / 2, minY), maxY),
-      width: width, height: height)
-    for case let button as UIButton in miniView.subviews where button !== miniPlayButton {
-      button.frame.origin = CGPoint(x: width - button.frame.width, y: 0)
-    }
-    miniPlayButton.center = CGPoint(x: width / 2, y: height / 2)
-  }
+  var miniDragStart: CGPoint?
 
   // MARK: - Sleep timer
 
-  private func sleepMenu() -> UIMenu {
-    var items: [UIMenuElement] = []
-    if let deadline = sleepDeadline {
-      let minutes = max(1, Int(deadline.timeIntervalSinceNow / 60.0 + 0.5))
-      items.append(UIAction(title: L("Quedan \(minutes) min", "\(minutes) min left"), attributes: .disabled) { _ in })
-    } else if sleepAtEndOfTrack {
-      items.append(UIAction(title: L("Se parará al acabar la canción", "Stops at the end of the song"), attributes: .disabled) { _ in })
-    }
-    if sleepDeadline != nil || sleepAtEndOfTrack {
-      items.append(
-        UIAction(title: L("Cancelar temporizador", "Cancel timer"), image: UIImage(systemName: "xmark"), attributes: .destructive) {
-          [weak self] _ in self?.cancelSleep()
-        })
-    }
-    let choices = [15, 30, 45, 60].map { minutes in
-      UIAction(title: L("\(minutes) minutos", "\(minutes) minutes")) { [weak self] _ in self?.startSleep(minutes: minutes) }
-    }
-    let endOfTrack = UIAction(title: L("Al acabar la canción", "At the end of the song")) { [weak self] _ in
-      self?.startSleepAtEndOfTrack()
-    }
-    items.append(UIMenu(title: "", options: .displayInline, children: choices + [endOfTrack]))
-    return UIMenu(title: L("Parar la música", "Stop the music"), children: items)
-  }
-
-  private func startSleep(minutes: Int) {
+  func startSleep(minutes: Int) {
     cancelSleep()
     tick()
     sleepDeadline = Date().addingTimeInterval(TimeInterval(minutes * 60))
@@ -453,8 +254,7 @@ final class MainViewController: UIViewController {
       MainActor.assumeIsolated {
         guard let self, let deadline = self.sleepDeadline else { return }
         if deadline.timeIntervalSinceNow <= 0 {
-          self.webTabs.values.forEach { $0.pauseAllMedia() }
-          self.playerTab?.pauseAllMedia()
+          self.allWebTabs.forEach { $0.pauseAllMedia() }
           self.cancelSleep()
         } else {
           self.updateSleepButton()
@@ -464,7 +264,7 @@ final class MainViewController: UIViewController {
     updateSleepButton()
   }
 
-  private func startSleepAtEndOfTrack() {
+  func startSleepAtEndOfTrack() {
     cancelSleep()
     tick()
     sleepAtEndOfTrack = true
@@ -472,7 +272,7 @@ final class MainViewController: UIViewController {
     updateSleepButton()
   }
 
-  private func cancelSleep() {
+  func cancelSleep() {
     sleepTimer?.invalidate()
     sleepTimer = nil
     sleepDeadline = nil
@@ -488,7 +288,7 @@ final class MainViewController: UIViewController {
     cancelSleep()
   }
 
-  private func updateSleepButton() {
+  func updateSleepButton() {
     let active = sleepDeadline != nil || sleepAtEndOfTrack
     // The timer belongs to Music; in YouTube it shows only while running.
     sleepButton.isHidden = selectedTab != .music && !active
@@ -520,8 +320,7 @@ final class MainViewController: UIViewController {
   @objc private func musicHeld(_ press: UILongPressGestureRecognizer) {
     guard press.state == .began else { return }
     tick()
-    select(.music)
-    webTabs[.music]?.run("play()")
+    perform(.play)
   }
 
   private func presentSearch(voice: Bool) {
@@ -536,10 +335,10 @@ final class MainViewController: UIViewController {
     let sheet = UINavigationController(rootViewController: search)
     // About two thirds of the screen with the keyboard up, the page visible above it.
     // iOS grows a sheet by the keyboard's height, so the sheet itself is that much shorter.
-    // ponytail: keyboard height assumed (~330 pt on iPhone); read it if sizes look off.
+    // ponytail: keyboard height assumed (see keyboardHeight); read it if sizes look off.
     if let presentation = sheet.sheetPresentationController {
       presentation.detents = [
-        .custom(identifier: .init("twoThirds")) { max(220, $0.maximumDetentValue * 0.66 - 330) }
+        .custom(identifier: .init("twoThirds")) { max(220, $0.maximumDetentValue * 0.66 - Self.keyboardHeight) }
       ]
       presentation.prefersGrabberVisible = true
       presentation.preferredCornerRadius = 22
@@ -547,173 +346,14 @@ final class MainViewController: UIViewController {
     present(sheet, animated: true)
   }
 
-  // MARK: - Page commands (the pages' own headers are hidden, see Shields.js)
-
-  private func runInSelectedTab(_ command: String) {
-    guard let tab = selectedTab else { return }
-    visibleWebTab(tab)?.run(command)
-  }
-
-  /// Speed, quality, data saver and subtitles act on the video: on YouTube that is the
-  /// player, also while it is the mini player over the list.
-  private func runOnPlayback(_ command: String) {
-    if selectedTab == .youtube, let player = playerTab {
-      player.run(command)
-    } else {
-      runInSelectedTab(command)
-    }
-  }
-
-  private func moreMenu() -> UIMenu {
-    func item(_ title: String, _ symbol: String, _ command: String) -> UIAction {
-      UIAction(title: title, image: UIImage(systemName: symbol)) { [weak self] _ in
-        self?.runInSelectedTab(command)
-      }
-    }
-    var sections: [UIMenuElement] = []
-    if let url = shareURL() {
-      var shareItems: [UIMenuElement] = [
-        UIAction(title: L("Compartir", "Share"), image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in
-          self?.share(url)
-        }
-      ]
-      if url.host == "youtu.be" {
-        shareItems.append(
-          UIAction(title: L("Compartir en este minuto", "Share at this moment"), image: UIImage(systemName: "clock")) { [weak self] _ in
-            self?.shareAtCurrentTime(url)
-          })
-      }
-      sections.append(UIMenu(options: .displayInline, children: shareItems))
-    }
-    if selectedTab == .youtube, playerTab != nil || shareURL()?.host == "youtu.be" {
-      sections.append(
-        UIAction(title: L("Subtítulos", "Subtitles"), image: UIImage(systemName: "captions.bubble")) { [weak self] _ in
-          self?.runOnPlayback("subtitles()")
-        })
-    }
-    if let tab = selectedTab {
-      sections.append(playbackMenu(for: tab))
-    }
-    if selectedTab == .music {
-      sections.append(
-        UIMenu(options: .displayInline, children: [
-          item(L("Inicio", "Home"), "house", "go(0)"),
-          item(L("Explorar", "Explore"), "safari", "go(1)"),
-          item(L("Biblioteca", "Library"), "books.vertical", "go(2)"),
-          item(L("Historial", "History"), "clock.arrow.circlepath", "history()"),
-        ]))
-    }
-    sections.append(
-      UIMenu(options: .displayInline, children: [
-        UIAction(title: L("Cuenta y ajustes", "Account and settings"), image: UIImage(systemName: "person.crop.circle")) {
-          [weak self] _ in
-          guard let self else { return }
-          // From a video: it shrinks into the mini player and the account opens in the list.
-          if self.selectedTab == .youtube, let player = self.playerTab, !self.playerMinimized { self.minimize(player) }
-          self.runInSelectedTab("account()")
-        }
-      ]))
-    sections.append(
-      UIAction(title: "AirPlay", image: UIImage(systemName: "airplayvideo")) { [weak self] _ in
-        self?.showAirPlayPicker()
-      })
-    sections.append(
-      UIAction(title: L("Recargar", "Reload"), image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
-        guard let self, let tab = self.selectedTab else { return }
-        self.visibleWebTab(tab)?.reloadOrRetry()
-      })
-    return UIMenu(children: sections)
-  }
-
-  /// Speed (both sites) and video quality (YouTube). The choice is stored here for the
-  /// checkmarks and in the page's localStorage by Shields.js, which applies it.
-  private func playbackMenu(for tab: AppTab) -> UIMenu {
-    let defaults = UserDefaults.standard
-    let speedKey = "TubeShell.speed.\(tab.rawValue)"
-    let currentSpeed = defaults.object(forKey: speedKey) as? Double ?? 1
-    let speeds = [0.75, 1, 1.25, 1.5, 2].map { rate in
-      UIAction(
-        title: rate == 1 ? L("Normal", "Normal") : "\(rate.formatted())×",
-        state: rate == currentSpeed ? .on : .off
-      ) { [weak self] _ in
-        defaults.set(rate, forKey: speedKey)
-        self?.runOnPlayback("speed(\(rate))")
-      }
-    }
-    var children: [UIMenuElement] = [
-      UIMenu(title: L("Velocidad", "Speed"), image: UIImage(systemName: "gauge.with.dots.needle.67percent"), children: speeds),
-    ]
-    if tab == .youtube {
-      let currentQuality = defaults.string(forKey: "TubeShell.quality") ?? "hd720"
-      // Without Premium YouTube still serves up to 4K (VP9/AV1, decoded in hardware);
-      // the video falls back to its best if it has less.
-      let qualities = [
-        ("auto", L("Automática", "Auto")), ("hd720", "720p"), ("hd1080", "1080p"),
-        ("hd1440", "1440p (2K)"), ("hd2160", "2160p (4K)"), ("max", L("Máxima", "Maximum")),
-      ].map { value, title in
-        UIAction(title: title, state: value == currentQuality ? .on : .off) { [weak self] _ in
-          defaults.set(value, forKey: "TubeShell.quality")
-          self?.runOnPlayback("quality('\(value)')")
-        }
-      }
-      let saverOn = defaults.object(forKey: "TubeShell.dataSaver") as? Bool ?? true
-      let saver = UIAction(
-        title: L("Ahorro de datos", "Data saver"),
-        subtitle: onCellular ? L("480p con datos móviles · ahora activo", "480p on mobile data · on now") : L("480p con datos móviles", "480p on mobile data"),
-        image: UIImage(systemName: "antenna.radiowaves.left.and.right"),
-        state: saverOn ? .on : .off
-      ) { [weak self] _ in
-        defaults.set(!saverOn, forKey: "TubeShell.dataSaver")
-        self?.runOnPlayback("saver(\(!saverOn))")
-      }
-      children.append(
-        UIMenu(
-          title: L("Calidad", "Quality"), image: UIImage(systemName: "sparkles.tv"),
-          children: qualities + [UIMenu(options: .displayInline, children: [saver])]))
-    }
-    return UIMenu(options: .displayInline, children: children)
-  }
-
-  /// The visible page as a clean link: youtu.be/ID for a YouTube video, the plain watch
-  /// link for a song, otherwise the page itself.
-  private func shareURL() -> URL? {
-    guard let tab = selectedTab, let url = visibleWebTab(tab)?.webView.url else { return nil }
-    let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-      .queryItems?.first(where: { $0.name == "v" })?.value
-    guard let id else { return url }
-    return URL(string: tab == .music ? "https://music.youtube.com/watch?v=\(id)" : "https://youtu.be/\(id)")
-  }
-
-  /// youtu.be/ID?t=SECONDS, read from the video on screen.
-  private func shareAtCurrentTime(_ url: URL) {
-    guard let webView = visibleWebTab(.youtube)?.webView else { return }
-    webView.evaluateJavaScript("Math.floor((document.querySelector('video') || {}).currentTime || 0)") {
-      [weak self] result, _ in
-      let seconds = (result as? NSNumber)?.intValue ?? 0
-      var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-      if seconds > 0 { components?.queryItems = [URLQueryItem(name: "t", value: String(seconds))] }
-      self?.share(components?.url ?? url)
-    }
-  }
-
   /// The system AirPlay picker, opened from the menu: AVRoutePickerView has no public
   /// way to present itself, so its own button is triggered.
-  private lazy var routePicker: AVRoutePickerView = {
+  lazy var routePicker: AVRoutePickerView = {
     let picker = AVRoutePickerView(frame: .zero)
     picker.isHidden = true
     view.addSubview(picker)
     return picker
   }()
-
-  private func showAirPlayPicker() {
-    routePicker.subviews.compactMap { $0 as? UIButton }.first?.sendActions(for: .touchUpInside)
-  }
-
-  private func share(_ url: URL) {
-    let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-    sheet.popoverPresentationController?.sourceView = moreButton
-    present(sheet, animated: true)
-  }
 
   // MARK: - Layout
 
@@ -733,7 +373,7 @@ final class MainViewController: UIViewController {
     return webTab
   }
 
-  private func attach(_ webView: WKWebView) {
+  func attach(_ webView: WKWebView) {
     webView.translatesAutoresizingMaskIntoConstraints = false
     contentView.addSubview(webView)
     NSLayoutConstraint.activate([
@@ -779,7 +419,7 @@ final class MainViewController: UIViewController {
 
     islandBar.translatesAutoresizingMaskIntoConstraints = false
     islandBar.backgroundColor = .black
-    islandBar.layer.cornerRadius = 18.5
+    islandBar.layer.cornerRadius = Capsule.height / 2
     islandBar.layer.cornerCurve = .continuous
     view.addSubview(islandBar)
 
@@ -862,8 +502,8 @@ final class MainViewController: UIViewController {
     // Web views run to the bottom edge; WebKit keeps the page clear of the home indicator.
     // At the top, iOS 26+ lets the page run under the island (see viewDidLayoutSubviews);
     // before that they start below it, or YouTube's fixed header slides under the island.
-    // The capsule is the island (~126 pt wide) plus a 108 pt lobe on each side:
-    // tabs and search on the left, sleep timer and menu on the right.
+    // The capsule is the island plus a lobe on each side (see Capsule): tabs and search on
+    // the left, sleep timer and menu on the right.
     let centerY = islandBar.centerYAnchor.constraint(equalTo: view.topAnchor, constant: 30)
     islandCenterY = centerY
     contentToTop = contentView.topAnchor.constraint(equalTo: view.topAnchor)
@@ -872,8 +512,8 @@ final class MainViewController: UIViewController {
     NSLayoutConstraint.activate([
       centerY,
       islandBar.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-      islandBar.widthAnchor.constraint(equalToConstant: 126 + 2 * 108),
-      islandBar.heightAnchor.constraint(equalToConstant: 37),
+      islandBar.widthAnchor.constraint(equalToConstant: Capsule.islandWidth + 2 * Capsule.lobeWidth),
+      islandBar.heightAnchor.constraint(equalToConstant: Capsule.height),
 
       contentToSafeArea,
       contentView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -900,194 +540,5 @@ final class MainViewController: UIViewController {
       sleepButton.widthAnchor.constraint(equalToConstant: 64),
       sleepButton.heightAnchor.constraint(equalToConstant: 27),
     ])
-  }
-}
-
-// MARK: - Search screen
-
-/// The app's own search: opens instantly with the keyboard up, lists recent searches,
-/// and can listen (the mic in the search bar, or holding 🔍 in the capsule).
-final class SearchViewController: UITableViewController, UISearchBarDelegate {
-
-  private let searchTab: AppTab
-  private let onSearch: (String) -> Void
-  private let searchBar = UISearchBar()
-  private var startListening: Bool
-  private var recents: [String]
-  private var recentsKey: String { "TubeShell.recentSearches.\(searchTab.rawValue)" }
-
-  // Dictation in the device language (falls back to Spanish if it has no recognizer).
-  private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: Locale.preferredLanguages.first ?? "es-ES"))
-    ?? SFSpeechRecognizer(locale: Locale(identifier: "es-ES"))
-  private let audioEngine = AVAudioEngine()
-  private var recognition: SFSpeechRecognitionTask?
-  private var silenceTimer: Timer?
-
-  init(tab: AppTab, startListening: Bool, onSearch: @escaping (String) -> Void) {
-    self.searchTab = tab
-    self.startListening = startListening
-    self.onSearch = onSearch
-    recents = UserDefaults.standard.stringArray(forKey: "TubeShell.recentSearches.\(tab.rawValue)") ?? []
-    super.init(style: .plain)
-  }
-
-  required init?(coder: NSCoder) { fatalError() }
-
-  override func viewDidLoad() {
-    super.viewDidLoad()
-    overrideUserInterfaceStyle = .dark
-    searchBar.delegate = self
-    searchBar.placeholder = searchTab == .music ? L("Buscar en Music", "Search Music") : L("Buscar en YouTube", "Search YouTube")
-    searchBar.showsBookmarkButton = true
-    searchBar.setImage(UIImage(systemName: "mic.fill"), for: .bookmark, state: .normal)
-    searchBar.returnKeyType = .search
-    navigationItem.titleView = searchBar
-    navigationItem.rightBarButtonItem = UIBarButtonItem(
-      systemItem: .cancel, primaryAction: UIAction { [weak self] _ in self?.close() })
-    tableView.register(UITableViewCell.self, forCellReuseIdentifier: "recent")
-    tableView.keyboardDismissMode = .onDrag
-  }
-
-  /// Closed by swiping it down or tapping outside: the microphone stops, nothing is searched.
-  override func viewWillDisappear(_ animated: Bool) {
-    super.viewWillDisappear(animated)
-    stopListening()
-  }
-
-  override func viewWillAppear(_ animated: Bool) {
-    super.viewWillAppear(animated)
-    if startListening {
-      startListening = false
-      listen()
-    } else {
-      searchBar.becomeFirstResponder()
-    }
-  }
-
-  private func submit(_ text: String) {
-    let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !query.isEmpty else { return }
-    recents.removeAll { $0.caseInsensitiveCompare(query) == .orderedSame }
-    recents.insert(query, at: 0)
-    UserDefaults.standard.set(Array(recents.prefix(20)), forKey: recentsKey)
-    stopListening()
-    dismiss(animated: true)
-    onSearch(query)
-  }
-
-  private func close() {
-    stopListening()
-    dismiss(animated: true)
-  }
-
-  func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-    submit(searchBar.text ?? "")
-  }
-
-  func searchBarBookmarkButtonClicked(_ searchBar: UISearchBar) {
-    listening ? stopListening() : listen()
-  }
-
-  // MARK: Recent searches
-
-  override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-    recents.count
-  }
-
-  override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-    recents.isEmpty ? nil : L("Recientes", "Recent")
-  }
-
-  override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-    let cell = tableView.dequeueReusableCell(withIdentifier: "recent", for: indexPath)
-    var content = cell.defaultContentConfiguration()
-    content.text = recents[indexPath.row]
-    content.image = UIImage(systemName: "clock.arrow.circlepath")
-    cell.contentConfiguration = content
-    return cell
-  }
-
-  override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-    submit(recents[indexPath.row])
-  }
-
-  override func tableView(
-    _ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath
-  ) {
-    recents.remove(at: indexPath.row)
-    UserDefaults.standard.set(recents, forKey: recentsKey)
-    tableView.deleteRows(at: [indexPath], with: .automatic)
-  }
-
-  // MARK: Voice
-
-  private func listen() {
-    SFSpeechRecognizer.requestAuthorization { status in
-      DispatchQueue.main.async {
-        guard status == .authorized else { return self.voiceUnavailable() }
-        AVAudioApplication.requestRecordPermission { granted in
-          DispatchQueue.main.async { granted ? self.record() : self.voiceUnavailable() }
-        }
-      }
-    }
-  }
-
-  private func voiceUnavailable() {
-    searchBar.placeholder = L("Permite el micrófono en Ajustes › Tube", "Allow the microphone in Settings › Tube")
-    searchBar.becomeFirstResponder()
-  }
-
-  private func record() {
-    guard let recognizer, recognizer.isAvailable, !listening else { return voiceUnavailable() }
-    let session = AVAudioSession.sharedInstance()
-    try? session.setCategory(.playAndRecord, mode: .measurement, options: [.duckOthers, .defaultToSpeaker])
-    try? session.setActive(true)
-
-    let request = SFSpeechAudioBufferRecognitionRequest()
-    request.shouldReportPartialResults = true
-    let input = audioEngine.inputNode
-    input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
-      request.append(buffer)
-    }
-    audioEngine.prepare()
-    listening = true  // the tap is installed: stopListening must remove it whatever happens
-    do { try audioEngine.start() } catch { return stopListening() }
-
-    searchBar.resignFirstResponder()
-    searchBar.text = ""
-    searchBar.placeholder = L("Escuchando…", "Listening…")
-    searchBar.setImage(UIImage(systemName: "mic.circle.fill"), for: .bookmark, state: .normal)
-    recognition = recognizer.recognitionTask(with: request) { result, error in
-      DispatchQueue.main.async {
-        guard self.listening else { return }  // closed meanwhile: no search
-        if let result {
-          self.searchBar.text = result.bestTranscription.formattedString
-          // Search once the voice has stopped for a moment.
-          self.silenceTimer?.invalidate()
-          self.silenceTimer = Timer.scheduledTimer(withTimeInterval: result.isFinal ? 0 : 1.4, repeats: false) { _ in
-            MainActor.assumeIsolated { self.submit(self.searchBar.text ?? "") }
-          }
-        } else if error != nil {
-          self.stopListening()
-        }
-      }
-    }
-  }
-
-  private var listening = false
-
-  private func stopListening() {
-    silenceTimer?.invalidate()
-    silenceTimer = nil
-    guard listening else { return }
-    listening = false
-    recognition?.cancel()
-    recognition = nil
-    audioEngine.stop()
-    audioEngine.inputNode.removeTap(onBus: 0)
-    // Back to the media player session (background audio).
-    try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
-    searchBar.placeholder = searchTab == .music ? L("Buscar en Music", "Search Music") : L("Buscar en YouTube", "Search YouTube")
-    searchBar.setImage(UIImage(systemName: "mic.fill"), for: .bookmark, state: .normal)
   }
 }

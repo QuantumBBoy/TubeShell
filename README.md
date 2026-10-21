@@ -135,9 +135,13 @@ Una app UIKit con dos `WKWebView` (más una tercera para el reproductor de YouTu
 ```
 TubeShell/
 ├── AppDelegate.swift          Sesión de audio (segundo plano)
-├── SceneDelegate.swift        Ventana, accesos rápidos y atajos de Siri
-├── AppTab.swift               Las dos pestañas y sus direcciones
-├── MainViewController.swift   Cápsula, pestañas, reproductor, minirreproductor, buscador
+├── SceneDelegate.swift        Ventana y accesos rápidos
+├── Shortcuts.swift            Atajos de Siri
+├── AppTab.swift               Las dos pestañas, sus direcciones y las claves guardadas
+├── MainViewController.swift   Cápsula, pestañas y temporizador
+├── MainViewController+Player.swift  Reproductor de YouTube y minirreproductor
+├── MainViewController+Menus.swift   Menús de la cápsula (⋯, velocidad, calidad, compartir)
+├── SearchViewController.swift Buscador propio, con voz
 ├── WebTab.swift               Vista web configurada como Brave, enlaces, sin conexión
 ├── ContentRules.swift         Compila las reglas de red (en caché)
 ├── Info.plist                 Audio en segundo plano, accesos rápidos, micrófono

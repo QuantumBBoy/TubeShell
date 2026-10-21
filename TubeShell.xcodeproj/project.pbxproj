@@ -16,6 +16,10 @@
 		CE04447CC670343AF808D2DA /* AppTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C497D5EC76592FA7A51DA0D /* AppTab.swift */; };
 		E51902C22E0D4BB02B9ACD6B /* ContentRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00A920AE459D9E4FB9654CCA /* ContentRules.swift */; };
 		F5FAE59DB8AA56BF20A3BF7B /* ContentRules.json in Resources */ = {isa = PBXBuildFile; fileRef = 17D4023FCAEF1BF023C923CF /* ContentRules.json */; };
+		B1C2D3E4F5A60718293A4B5D /* SearchViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* SearchViewController.swift */; };
+		B2C3D4E5F6A70819203B4C5E /* Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B3C4D5E6F70819203B4C5D /* Shortcuts.swift */; };
+		B3C4D5E6F7A8091A213C4D5F /* MainViewController+Player.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3B4C5D6E7F8091A213C4D5E /* MainViewController+Player.swift */; };
+		B4C5D6E7F8A90A1B223D4E60 /* MainViewController+Menus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4B5C6D7E8F90A1B223D4E5F /* MainViewController+Menus.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +35,10 @@
 		BB5944C6515D6D2B678426AB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F5BF48AA40CAD7891EB709FC /* TubeShell.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TubeShell.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5161C0A1B2C3D4E5F6A7B8C9 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5C /* SearchViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewController.swift; sourceTree = "<group>"; };
+		A2B3C4D5E6F70819203B4C5D /* Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shortcuts.swift; sourceTree = "<group>"; };
+		A3B4C5D6E7F8091A213C4D5E /* MainViewController+Player.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MainViewController+Player.swift"; sourceTree = "<group>"; };
+		A4B5C6D7E8F90A1B223D4E5F /* MainViewController+Menus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MainViewController+Menus.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +78,10 @@
 				00A920AE459D9E4FB9654CCA /* ContentRules.swift */,
 				8505C0567F11D72EFBE7C55F /* MainViewController.swift */,
 				3E23C33DFEDA0E679FE4B014 /* WebTab.swift */,
+				A4B5C6D7E8F90A1B223D4E5F /* MainViewController+Menus.swift */,
+				A3B4C5D6E7F8091A213C4D5E /* MainViewController+Player.swift */,
+				A2B3C4D5E6F70819203B4C5D /* Shortcuts.swift */,
+				A1B2C3D4E5F60718293A4B5C /* SearchViewController.swift */,
 				DAF3408C202C5889DED5CB36 /* Resources */,
 				42D35BC73752536E532BE199 /* Assets.xcassets */,
 				BB5944C6515D6D2B678426AB /* Info.plist */,
@@ -164,6 +176,10 @@
 				E51902C22E0D4BB02B9ACD6B /* ContentRules.swift in Sources */,
 				C2423BED6056B580D5CCC7F8 /* MainViewController.swift in Sources */,
 				1D21A430D38E29D27F188241 /* WebTab.swift in Sources */,
+				B4C5D6E7F8A90A1B223D4E60 /* MainViewController+Menus.swift in Sources */,
+				B3C4D5E6F7A8091A213C4D5F /* MainViewController+Player.swift in Sources */,
+				B2C3D4E5F6A70819203B4C5E /* Shortcuts.swift in Sources */,
+				B1C2D3E4F5A60718293A4B5D /* SearchViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

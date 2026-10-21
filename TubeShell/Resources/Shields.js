@@ -2,17 +2,26 @@
 //
 // Runs at document start, in the page world, before any YouTube code.
 // It reproduces what Brave Shields injects on youtube.com / music.youtube.com
-// (see the default Brave + uBlock Origin filter lists):
+// (see the default Brave + uBlock Origin filter lists) and adds the page side of the app:
 //
-//   1. set        -> ytInitialPlayerResponse / playerResponse arrive without ad fields
-//   2. json-prune -> JSON.parse, Response.json() and XHR JSON lose
-//                    adPlacements / playerAds / adSlots and Shorts ad entries
-//   3. fallback   -> if an ad still plays: mute it, jump to its end, press "Skip"
-//   4. background -> Brave's MediaBackgroundingScript + brave-video-bg-play-update
-//   5. cosmetic   -> hide ad slots and the "Get Premium" pop-ups
-//
-//   6. shorts    -> hide Shorts on m.youtube.com, open Shorts links as normal videos
-//   7. sponsors  -> SponsorBlock: skip sponsor / self-promo / "subscribe" segments
+//    1. ad data      -> ytInitialPlayerResponse / playerResponse arrive without ad fields;
+//                       JSON.parse, Response.json() and XHR JSON lose adPlacements /
+//                       playerAds / adSlots and Shorts ad entries
+//    2. fallback     -> if an ad still plays: mute it, jump to its end, press "Skip"
+//    3. speed and quality, with the data saver
+//    4. background   -> Brave's MediaBackgroundingScript + brave-video-bg-play-update
+//    5. app reports  -> a video or song started, its position, the pause on reopening,
+//                       the sleep timer at the end of a song
+//    6. lock screen  -> Music: next / previous instead of -10 s / +10 s
+//    7. Music edge to edge (iOS 26+)
+//    8. cosmetic     -> hide ad slots, Premium pop-ups and Shorts; Shorts links open as videos
+//    9. SponsorBlock -> skip sponsor / self-promo / "subscribe" segments
+//   10. page commands -> no page headers; the app's capsule runs window.__tubeShell.*
+//   11. Music history -> the full player is not a page of its own
+//   12. Music player gestures
+//   13. YouTube      -> captions off, mini player mode, drag the video down to minimize
+//   14. YouTube      -> fullscreen follows the iPhone's rotation
+//   15. YouTube list -> tapped videos open in the app's player
 //
 // When YouTube changes something, this is the file to update.
 
@@ -28,15 +37,130 @@
   }
 
   const isTopFrame = window === window.top;
+
+  // Device language (set by the app): Spanish or English. Labels of the SponsorBlock
+  // toast and of the Music gesture hints.
+  const es = String(window.__tubeShellLang || navigator.language || '').toLowerCase().indexOf('es') === 0;
+  const T = es
+    ? {
+        prev: 'Anterior', next: 'Siguiente', back: 'Atrás', lyrics: 'Toca: letra',
+        skipped: 'Saltado',
+        categories: {
+          sponsor: 'patrocinio',
+          selfpromo: 'autopromoción',
+          interaction: 'recordatorio de suscripción',
+          music_offtopic: 'parte sin música',
+        },
+      }
+    : {
+        prev: 'Previous', next: 'Next', back: 'Back', lyrics: 'Tap: lyrics',
+        skipped: 'Skipped',
+        categories: {
+          sponsor: 'sponsor',
+          selfpromo: 'self-promotion',
+          interaction: 'subscribe reminder',
+          music_offtopic: 'non-music part',
+        },
+      };
+
+  // Windows after the page starts (ms).
+  const LAUNCH_WINDOW_MS = 15000; // a page reopened by the app: paused, folded (sections 5, 12)
+  const START_WINDOW_MS = 10000; // seeking back to the saved second; forcing a tapped video to play
+  const SLEEP_WINDOW_MS = 10000; // after the sleep timer: what the next track starts is paused
+
+  // State shared between sections. The app's commands (window.__tubeShell, section 10) set some.
+  let holdUntil = 0; // reopened page: anything that starts is paused until then (section 5)
+  let playRequested = false; // the app asked to play (tapped video, Siri): lifts that pause
+  let sleepAtEnd = false; // sleep timer "at the end of the song" (sleepAtEnd command)
+  let cellular = false; // mobile data / Low Data Mode (network command): data saver
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  // Tells the app something. False when the page has no message handler (not in the app).
+  const post = function (message) {
+    try {
+      window.webkit.messageHandlers.tubeshell.postMessage(message);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
   // A light tap of the iPhone's haptic engine (the app plays it).
   const haptic = function () {
+    post({ type: 'haptic' });
+  };
+
+  // Adds a stylesheet as soon as the document exists.
+  const addCss = function (text, id) {
+    const add = function () {
+      const style = document.createElement('style');
+      if (id) style.id = id;
+      style.textContent = text;
+      (document.head || document.documentElement).appendChild(style);
+    };
+    if (document.documentElement) add();
+    else document.addEventListener('DOMContentLoaded', add, { once: true });
+  };
+
+  // Clicks the first element matching the selector; whether there was one.
+  const press = function (selector) {
+    const target = document.querySelector(selector);
+    if (target) target.click();
+    return Boolean(target);
+  };
+
+  // The current page, without the #fragment (opening m.youtube.com's search only changes that).
+  const page = function () {
+    return location.pathname + location.search;
+  };
+
+  // Settings kept per site in localStorage (speed, quality, captions, last search...).
+  const pref = function (key, fallback) {
     try {
-      window.webkit.messageHandlers.tubeshell.postMessage({ type: 'haptic' });
+      return localStorage.getItem(key) || fallback;
+    } catch (e) {
+      return fallback;
+    }
+  };
+  const setPref = function (key, value) {
+    try {
+      localStorage.setItem(key, value);
     } catch (e) {}
   };
 
+  // YouTube Music's full player (the page the artwork opens) is showing.
+  const isMusicPlayerOpen = function () {
+    return Boolean(document.querySelector('ytmusic-app-layout[player-page-open]'));
+  };
+
+  // Fold Music's full player into its mini player, as its ⌄ button does: the inner button
+  // is the one that reacts; if the player is still open, try the button's host, then
+  // Escape (which Music also handles).
+  const foldMusicPlayer = function () {
+    const attempts = [
+      function () {
+        press('ytmusic-player-page #collapse-button button');
+      },
+      function () {
+        press('ytmusic-player-page #collapse-button');
+      },
+      function () {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+      },
+    ];
+    let i = 0;
+    const next = function () {
+      if (!isMusicPlayerOpen() || i >= attempts.length) return;
+      attempts[i++]();
+      setTimeout(next, 120);
+    };
+    next();
+  };
+
   // ---------------------------------------------------------------------------
-  // 1 + 2. Remove ad data before the player sees it
+  // 1. Remove ad data before the player sees it
   // ---------------------------------------------------------------------------
 
   // Same property list as the Brave / uBO rules for youtube.com.
@@ -141,7 +265,7 @@
   } catch (e) {}
 
   // ---------------------------------------------------------------------------
-  // 3. Fallback: an ad slipped through anyway
+  // 2. Fallback: an ad slipped through anyway
   // ---------------------------------------------------------------------------
 
   let mutedForAd = null;
@@ -203,18 +327,15 @@
     document.addEventListener(type, wakeAdTimer, true);
   }
 
+  // ---------------------------------------------------------------------------
+  // 3. Speed and quality
+  // ---------------------------------------------------------------------------
+
   // Speed and quality chosen in the app's menu (stored per site in localStorage).
   // m.youtube.com's Auto picks 360p in the small portrait player even on fast wifi, which
   // looks soft on a 3x screen, so the default is 720p. Applied once per video (a quality
   // picked by hand later in the same video is left alone); the player falls back to the
   // best it has.
-  const pref = function (key, fallback) {
-    try {
-      return localStorage.getItem(key) || fallback;
-    } catch (e) {
-      return fallback;
-    }
-  };
   const applySpeed = function (media) {
     const rate = Number(pref('tubeShellSpeed', '1')) || 1;
     if (media.playbackRate !== rate) media.playbackRate = rate;
@@ -228,7 +349,7 @@
     try {
       // "max": the best this video has (up to 2160p60 HDR on an iPhone 15 Pro).
       if (quality === 'max') quality = (player.getAvailableQualityLevels() || [])[0] || 'hd1080';
-      const saving = window.__tubeShellCellular && pref('tubeShellSaver', 'on') === 'on';
+      const saving = cellular && pref('tubeShellSaver', 'on') === 'on';
       if (saving && (quality === 'auto' || QUALITY_ORDER.indexOf(quality) > QUALITY_ORDER.indexOf(SAVER_QUALITY))) {
         quality = SAVER_QUALITY;
       }
@@ -356,90 +477,26 @@
     } catch (e) {}
   }, 5 * 60 * 1000);
 
+  // ---------------------------------------------------------------------------
+  // 5. Reports to the app: a video starts, its position, the pause on reopening,
+  //    the sleep timer
+  // ---------------------------------------------------------------------------
+
   // Tell the app a video or song started with sound, so it can pause the other tab.
   // Muted previews (feed, Shorts thumbnails) are ignored: they must not stop the music,
   // but a muted video that gets its sound while playing counts as starting.
   if (isTopFrame) {
-    document.addEventListener(
-      'volumechange',
-      function (event) {
-        const media = event.target;
-        if (!(media instanceof HTMLMediaElement) || media.paused || media.muted || media.volume === 0) return;
-        if (Date.now() < (window.__tubeShellHoldUntil || 0) && !window.__tubeShellPlayRequested) return;
-        try {
-          window.webkit.messageHandlers.tubeshell.postMessage({ type: 'play' });
-        } catch (e) {}
-      },
-      true
-    );
-    document.addEventListener(
-      'play',
-      function (event) {
-        const media = event.target;
-        if (!(media instanceof HTMLMediaElement) || media.muted || media.volume === 0) return;
-        // A page reopened by the app starts by itself and is paused at once (the hold
-        // below): that must not stop what is playing in the other tab.
-        if (Date.now() < (window.__tubeShellHoldUntil || 0) && !window.__tubeShellPlayRequested) return;
-        try {
-          window.webkit.messageHandlers.tubeshell.postMessage({ type: 'play' });
-        } catch (e) {}
-      },
-      true
-    );
-  }
-
-  // YouTube Music edge to edge (iOS 26+, flag set by the app). Its web app is not built
-  // for it, so: viewport-fit=cover, then move its bars clear of the island and the home
-  // indicator. Relies on Music's own element names; revisit when Music changes layout.
-  if (isTopFrame && location.hostname === 'music.youtube.com' && window.__tubeShellEdgeToEdge) {
-    // m.youtube.com already asks for viewport-fit=cover; Music does not.
-    const coverViewport = function () {
-      const meta = document.querySelector('meta[name="viewport"]');
-      if (meta && !/viewport-fit/.test(meta.content)) meta.content += ', viewport-fit=cover';
-      return Boolean(meta);
+    const reportPlay = function (event) {
+      const media = event.target;
+      if (!(media instanceof HTMLMediaElement) || media.paused || media.muted || media.volume === 0) return;
+      // A page reopened by the app starts by itself and is paused at once (the hold
+      // below): that must not stop what is playing in the other tab.
+      if (Date.now() < holdUntil && !playRequested) return;
+      post({ type: 'play' });
     };
-    if (!coverViewport()) document.addEventListener('DOMContentLoaded', coverViewport, { once: true });
-
-    const TOP = 'env(safe-area-inset-top)';
-    const BOTTOM = 'env(safe-area-inset-bottom)';
-    // Bottom bars sit lower than the full home-indicator inset, like the native apps.
-    const LIFT = 'calc(env(safe-area-inset-bottom) - 28px)';
-    const edgeCss = [
-      // Top bar: Music sizes the bar, its background and the page offset from this
-      // variable. Normally the bar is hidden (section 8) and only the island's height
-      // is left; while searching it comes back below the island.
-      'ytmusic-app, ytmusic-app-layout { --ytmusic-nav-bar-height: ' + TOP + ' !important; }',
-      // While searching the bar comes back over the page (which does not move), with a
-      // solid backdrop from the top edge.
-      'ytmusic-nav-bar { padding-top: ' + TOP + ' !important; box-sizing: border-box !important;' +
-        ' height: calc(64px + ' + TOP + ') !important; }',
-      // Music's open search box (~58 pt) is taller than the 64 pt bar's content area.
-      'html.tubeshell-header ytmusic-nav-bar { background: #030303 !important;' +
-        ' height: calc(80px + ' + TOP + ') !important; }',
-      'html.tubeshell-header #nav-bar-background { visibility: hidden !important; }',
-      'html:not(.tubeshell-header) :is(ytmusic-nav-bar, #nav-bar-divider) { visibility: hidden !important; }',
-      // Mini player (ytmusic-miniplayer, or ytmusic-player-bar on older builds) and the
-      // small artwork (ytmusic-player, 8 px off the edge) sit just above the home
-      // indicator; their background is frosted glass down to the edge.
-      'ytmusic-app-layout[player-visible]:not([player-page-open]) :is(ytmusic-miniplayer, ytmusic-player-bar)' +
-        ' { bottom: ' + LIFT + ' !important; background: transparent !important; }',
-      'ytmusic-app-layout[player-visible]:not([player-page-open]) ytmusic-player#player' +
-        ' { bottom: calc(8px + ' + LIFT + ') !important; }',
-      'ytmusic-app-layout[player-visible]:not([player-page-open]) #player-bar-background' +
-        ' { bottom: 0 !important; height: calc(64px + ' + LIFT + ') !important;' +
-        ' background-color: rgba(33, 33, 33, 0.6) !important;' +
-        ' -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); }',
-      // Full player and side menu: keep their contents off both strips.
-      'ytmusic-player-page, #guide-wrapper { padding-top: ' + TOP + ' !important;' +
-        ' padding-bottom: ' + BOTTOM + ' !important; box-sizing: border-box !important; }',
-    ].join('\n');
-    const addEdgeStyle = function () {
-      const style = document.createElement('style');
-      style.textContent = edgeCss;
-      (document.head || document.documentElement).appendChild(style);
-    };
-    if (document.documentElement) addEdgeStyle();
-    else document.addEventListener('DOMContentLoaded', addEdgeStyle, { once: true });
+    for (const type of ['play', 'volumechange']) {
+      document.addEventListener(type, reportPlay, true);
+    }
   }
 
   // Remember the second the song or video is at (the app stores it), and on reopening
@@ -450,7 +507,7 @@
     // Music resets the song to 0:00 while it sets itself up: keep putting it back for the
     // first seconds (until it sticks or the user touches the page), and do not save the
     // position meanwhile, or the 0:00 would overwrite the second to restore.
-    const resumeUntil = Date.now() + 10000;
+    const resumeUntil = Date.now() + START_WINDOW_MS;
     document.addEventListener(
       'touchstart',
       function () {
@@ -487,13 +544,7 @@
       const now = Date.now();
       if (event.type !== 'pause' && now - lastReport < 5000) return;
       lastReport = now;
-      try {
-        window.webkit.messageHandlers.tubeshell.postMessage({
-          type: 'position',
-          v: id,
-          t: Math.floor(media.currentTime),
-        });
-      } catch (e) {}
+      post({ type: 'position', v: id, t: Math.floor(media.currentTime) });
     };
     for (const type of ['loadedmetadata', 'timeupdate', 'pause']) {
       document.addEventListener(type, track, true);
@@ -504,28 +555,25 @@
   // A new web view starts with empty sessionStorage; until the first tap (or for
   // 15 s, so lock screen controls still work) anything that starts is paused.
   if (isTopFrame) {
-    let holdUntil = 0;
     try {
       if (!sessionStorage.getItem('tubeShellStarted')) {
         sessionStorage.setItem('tubeShellStarted', '1');
         // A video tapped in the list plays at once.
-        if (!window.__tubeShellAutoplay) holdUntil = Date.now() + 15000;
+        if (!window.__tubeShellAutoplay) holdUntil = Date.now() + LAUNCH_WINDOW_MS;
       }
     } catch (e) {}
-    window.__tubeShellHoldUntil = holdUntil;
     if (holdUntil) {
       document.addEventListener(
         'touchstart',
         function () {
           holdUntil = 0;
-          window.__tubeShellHoldUntil = 0;
         },
         { capture: true, once: true }
       );
       document.addEventListener(
         'playing',
         function (event) {
-          if (Date.now() < holdUntil && !window.__tubeShellPlayRequested && event.target instanceof HTMLMediaElement) {
+          if (Date.now() < holdUntil && !playRequested && event.target instanceof HTMLMediaElement) {
             event.target.pause();
           }
         },
@@ -534,8 +582,8 @@
     }
   }
 
-  // Sleep timer "at the end of the song": the app sets the flag, we pause just
-  // before the track ends. YouTube Music still loads and starts the next track,
+  // Sleep timer "at the end of the song": the app sets the flag (sleepAtEnd command), we
+  // pause just before the track ends. YouTube Music still loads and starts the next track,
   // so anything that starts playing in the next few seconds is paused too.
   if (isTopFrame) {
     let sleepingUntil = 0;
@@ -550,21 +598,21 @@
       'timeupdate',
       function (event) {
         const media = event.target;
-        if (!window.__tubeShellSleepAtEnd || !(media instanceof HTMLMediaElement)) return;
+        if (!sleepAtEnd || !(media instanceof HTMLMediaElement)) return;
         if (!isFinite(media.duration) || media.currentTime < media.duration - 0.6) return;
         if (media.closest('.ad-showing')) return;
-        window.__tubeShellSleepAtEnd = false;
-        sleepingUntil = Date.now() + 10000;
+        sleepAtEnd = false;
+        sleepingUntil = Date.now() + SLEEP_WINDOW_MS;
         media.pause();
-        try {
-          window.webkit.messageHandlers.tubeshell.postMessage({ type: 'slept' });
-        } catch (e) {}
+        post({ type: 'slept' });
       },
       true
     );
   }
 
-  // Lock screen on YouTube Music: next / previous track instead of -10 s / +10 s.
+  // ---------------------------------------------------------------------------
+  // 6. Lock screen on YouTube Music: next / previous track instead of -10 s / +10 s
+  // ---------------------------------------------------------------------------
   // iOS shows the skip-10 buttons whenever seek actions are available, so drop
   // YouTube's seek handlers and wire next / previous (and play / pause) if the
   // page did not.
@@ -577,10 +625,6 @@
       return nativeSetActionHandler.call(this, action, handler);
     };
 
-    const press = function (selector) {
-      const button = document.querySelector(selector);
-      if (button) button.click();
-    };
     const currentMedia = function () {
       return document.querySelector('video, audio');
     };
@@ -621,7 +665,58 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 5. Cosmetic: ad slots, Premium pop-ups, Picture in Picture
+  // 7. YouTube Music edge to edge
+  // ---------------------------------------------------------------------------
+  // iOS 26+, flag set by the app. Music's web app is not built for it, so: viewport-fit=cover,
+  // then move its bars clear of the island and the home indicator. Relies on Music's own
+  // element names; revisit when Music changes layout.
+  if (isTopFrame && location.hostname === 'music.youtube.com' && window.__tubeShellEdgeToEdge) {
+    // m.youtube.com already asks for viewport-fit=cover; Music does not.
+    const coverViewport = function () {
+      const meta = document.querySelector('meta[name="viewport"]');
+      if (meta && !/viewport-fit/.test(meta.content)) meta.content += ', viewport-fit=cover';
+      return Boolean(meta);
+    };
+    if (!coverViewport()) document.addEventListener('DOMContentLoaded', coverViewport, { once: true });
+
+    const TOP = 'env(safe-area-inset-top)';
+    const BOTTOM = 'env(safe-area-inset-bottom)';
+    // Bottom bars sit lower than the full home-indicator inset, like the native apps.
+    const LIFT = 'calc(env(safe-area-inset-bottom) - 28px)';
+    const edgeCss = [
+      // Top bar: Music sizes the bar, its background and the page offset from this
+      // variable. Normally the bar is hidden (section 10) and only the island's height
+      // is left; while searching it comes back below the island.
+      'ytmusic-app, ytmusic-app-layout { --ytmusic-nav-bar-height: ' + TOP + ' !important; }',
+      // While searching the bar comes back over the page (which does not move), with a
+      // solid backdrop from the top edge.
+      'ytmusic-nav-bar { padding-top: ' + TOP + ' !important; box-sizing: border-box !important;' +
+        ' height: calc(64px + ' + TOP + ') !important; }',
+      // Music's open search box (~58 pt) is taller than the 64 pt bar's content area.
+      'html.tubeshell-header ytmusic-nav-bar { background: #030303 !important;' +
+        ' height: calc(80px + ' + TOP + ') !important; }',
+      'html.tubeshell-header #nav-bar-background { visibility: hidden !important; }',
+      'html:not(.tubeshell-header) :is(ytmusic-nav-bar, #nav-bar-divider) { visibility: hidden !important; }',
+      // Mini player (ytmusic-miniplayer, or ytmusic-player-bar on older builds) and the
+      // small artwork (ytmusic-player, 8 px off the edge) sit just above the home
+      // indicator; their background is frosted glass down to the edge.
+      'ytmusic-app-layout[player-visible]:not([player-page-open]) :is(ytmusic-miniplayer, ytmusic-player-bar)' +
+        ' { bottom: ' + LIFT + ' !important; background: transparent !important; }',
+      'ytmusic-app-layout[player-visible]:not([player-page-open]) ytmusic-player#player' +
+        ' { bottom: calc(8px + ' + LIFT + ') !important; }',
+      'ytmusic-app-layout[player-visible]:not([player-page-open]) #player-bar-background' +
+        ' { bottom: 0 !important; height: calc(64px + ' + LIFT + ') !important;' +
+        ' background-color: rgba(33, 33, 33, 0.6) !important;' +
+        ' -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%); }',
+      // Full player and side menu: keep their contents off both strips.
+      'ytmusic-player-page, #guide-wrapper { padding-top: ' + TOP + ' !important;' +
+        ' padding-bottom: ' + BOTTOM + ' !important; box-sizing: border-box !important; }',
+    ].join('\n');
+    addCss(edgeCss);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 8. Cosmetic: ad slots, Premium pop-ups, Shorts, Picture in Picture
   // ---------------------------------------------------------------------------
 
   const css = [
@@ -637,7 +732,7 @@
     'ytm-mealbar-promo-renderer',
     'ytm-app-promo-renderer',
     'ytm-upsell-dialog-renderer',
-    // 6. Shorts on m.youtube.com: shelves, single entries and the bottom bar tab
+    // Shorts on m.youtube.com: shelves, single entries and the bottom bar tab
     'ytm-reel-shelf-renderer',
     'ytm-shorts-lockup-view-model',
     'ytm-shorts-lockup-view-model-v2',
@@ -648,16 +743,7 @@
     'ytm-pivot-bar-item-renderer:has(.pivot-shorts)',
   ].join(',\n') + ' { display: none !important; }';
 
-  const addStyle = function () {
-    const style = document.createElement('style');
-    style.textContent = css;
-    (document.head || document.documentElement).appendChild(style);
-  };
-  if (document.documentElement) {
-    addStyle();
-  } else {
-    document.addEventListener('DOMContentLoaded', addStyle, { once: true });
-  }
+  addCss(css);
 
   // Brave hides these YouTube Music dialogs by their text (English and Spanish).
   const PROMO_TEXT =
@@ -699,15 +785,13 @@
         button.click();
       });
 
-    // A Shorts link (shared, or from a page we did not clean): open it as a normal video.
     // Last search (/results on YouTube, /search on Music): where "back" goes when there
     // is no page behind.
     if (isTopFrame && (location.pathname === '/results' || location.pathname === '/search')) {
-      try {
-        localStorage.setItem('tubeShellLastSearch', location.pathname + location.search);
-      } catch (e) {}
+      setPref('tubeShellLastSearch', page());
     }
 
+    // A Shorts link (shared, or from a page we did not clean): open it as a normal video.
     const short = isTopFrame && location.pathname.match(/^\/shorts\/([\w-]{11})/);
     if (short) location.replace('/watch?v=' + short[1]);
 
@@ -749,7 +833,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 7. SponsorBlock (sponsor.ajay.app, community-submitted segments)
+  // 9. SponsorBlock (sponsor.ajay.app, community-submitted segments)
   // ---------------------------------------------------------------------------
 
   if (isTopFrame) {
@@ -757,12 +841,6 @@
       location.hostname === 'music.youtube.com'
         ? ['music_offtopic']
         : ['sponsor', 'selfpromo', 'interaction', 'music_offtopic'];
-    const SB_NAMES = {
-      sponsor: 'patrocinio',
-      selfpromo: 'autopromoción',
-      interaction: 'recordatorio de suscripción',
-      music_offtopic: 'parte sin música',
-    };
 
     let sbVideo = null; // video id the segments below belong to
     let sbSegments = [];
@@ -830,7 +908,7 @@
           const end = s.segment[1];
           if (end - start > 1 && t >= start && t < end - 0.5) {
             media.currentTime = end;
-            toast('Saltado: ' + (SB_NAMES[s.category] || s.category));
+            toast(T.skipped + ': ' + (T.categories[s.category] || s.category));
             return;
           }
         }
@@ -840,10 +918,10 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 8. No page headers: the app's island capsule runs these commands instead
+  // 10. No page headers: the app's island capsule runs these commands instead
   // ---------------------------------------------------------------------------
-  // The header comes back (html.tubeshell-header) only while searching; the next
-  // page change hides it again. All commands press the page's own buttons, so the
+  // On Music the header comes back (html.tubeshell-header) only while searching; the next
+  // page change hides it again. (On m.youtube.com the search is the app's own screen.) All commands press the page's own buttons, so the
   // single-page app navigates without reloading (and the music keeps playing).
 
   if (isTopFrame) {
@@ -873,13 +951,6 @@
       .concat(
         edge
           ? [
-              // While searching the header comes back below the island, its backdrop
-              // filling the island strip too; the page underneath does not move.
-              'html.tubeshell-header ytm-mobile-topbar-renderer#header-bar { top: ' + island + ' !important; }',
-              'html.tubeshell-header .mobile-topbar-header-background' +
-                ' { top: 0 !important; height: calc(48px + ' + island + ') !important; background: #0f0f0f !important; }',
-              'html.tubeshell-header ytm-app { padding-top: ' + island + ' !important; }',
-              'html.tubeshell-header ytm-feed-filter-chip-bar-renderer { visibility: hidden !important; }',
               'ytm-pivot-bar-renderer { padding-bottom: calc(env(safe-area-inset-bottom) - 28px) !important; }',
               // Side drawer (compass button): its top clear of the island.
               '.ytmDrawerLayoutContainerDrawerLayout { padding-top: ' + island + ' !important; box-sizing: border-box !important; }',
@@ -901,31 +972,17 @@
       );
     }
 
-    const addHeaderStyle = function () {
-      const style = document.createElement('style');
-      style.textContent = headerCss;
-      (document.head || root).appendChild(style);
-    };
-    if (root) addHeaderStyle();
-    else document.addEventListener('DOMContentLoaded', addHeaderStyle, { once: true });
+    addCss(headerCss);
 
     let headerTimer = 0;
-    // Opening search only changes the #fragment; a new page changes path or query.
-    const page = function () {
-      return location.pathname + location.search;
-    };
-    // m.youtube.com marks the open search with a #fragment: closing it (back arrow)
-    // drops the fragment, which hides the header too.
+    // Music: shows the header until the page changes or its search box closes again.
     const showHeaderUntilNavigation = function () {
       const shownAt = page();
       let searchWasOpen = false;
       root.classList.add('tubeshell-header');
       clearInterval(headerTimer);
       headerTimer = setInterval(function () {
-        // Open search: a #fragment on m.youtube.com, [opened] on Music's search box.
-        const searchOpen = onMusic
-          ? Boolean(document.querySelector('ytmusic-search-box[opened]'))
-          : Boolean(location.hash);
+        const searchOpen = Boolean(document.querySelector('ytmusic-search-box[opened]'));
         if (searchOpen) searchWasOpen = true;
         const searchClosed = searchWasOpen && !searchOpen;
         if (page() === shownAt && !searchClosed) return;
@@ -933,29 +990,8 @@
         clearInterval(headerTimer);
       }, 500);
     };
-    const press = function (selector) {
-      const target = document.querySelector(selector);
-      if (target) target.click();
-      return Boolean(target);
-    };
 
     window.__tubeShell = {
-      // Music ignores a press on its search button while the bar is still hidden, so
-      // press once the bar is shown, and again if the box did not open.
-      search: function () {
-        showHeaderUntilNavigation();
-        const selector = onMusic
-          ? 'ytmusic-search-box .search-button button, ytmusic-search-box .search-button'
-          : 'button.topbar-button-search-button';
-        if (!onMusic) return void press(selector);
-        let tries = 0;
-        const open = function () {
-          if (document.querySelector('ytmusic-search-box[opened]') || tries++ > 4) return;
-          press(selector);
-          setTimeout(open, 250);
-        };
-        setTimeout(open, 80);
-      },
       account: function () {
         if (onMusic) {
           press('ytmusic-settings-button button, ytmusic-settings-button, ytmusic-nav-bar #menu-button button, ytmusic-nav-bar a.sign-in-link');
@@ -990,7 +1026,9 @@
         if (result && result.catch) result.catch(fallback);
       },
       // Search from the app's own search screen. YouTube: open the results page.
-      // Music: type into its own search box (no reload, so the music keeps playing).
+      // Music: type into its own search box (no reload, so the music keeps playing). Music
+      // ignores a press on its search button while the bar is still hidden, so the header is
+      // shown first and the button pressed again if the box did not open.
       searchFor: function (query) {
         if (!onMusic) return void location.assign('/results?search_query=' + encodeURIComponent(query));
         showHeaderUntilNavigation();
@@ -1018,8 +1056,8 @@
       // swaps the video source (quality) and waits. For a few seconds, until the user
       // touches the page, every time the video can play it is played, with sound.
       startPlayback: function () {
-        window.__tubeShellPlayRequested = true;
-        const until = Date.now() + 10000;
+        playRequested = true;
+        const until = Date.now() + START_WINDOW_MS;
         const play = function () {
           const video = document.querySelector('video');
           if (Date.now() > until || !video || !video.currentSrc || video.ended) return;
@@ -1044,7 +1082,7 @@
           document.addEventListener(type, play, true);
         });
         document.addEventListener('touchstart', stop, true);
-        setTimeout(stop, 10000);
+        setTimeout(stop, START_WINDOW_MS);
         [0, 500, 1500, 3000].forEach(function (delay) {
           setTimeout(play, delay);
         });
@@ -1069,40 +1107,14 @@
           }, delay);
         });
       },
-      // Back, also when there is nothing behind (the app reopened straight on this page):
-      // then the last search, or the home page. On Music an open full player is first
-      // folded down into the mini player, like its ⌄ button.
+      // Back, called by the app only when the page has nothing behind it (reopened straight
+      // on this page): the last search on YouTube, home otherwise. On Music an open full
+      // player is first folded down into the mini player, like its ⌄ button.
       back: function () {
-        if (onMusic && document.querySelector('ytmusic-app-layout[player-page-open]')) {
-          if (window.__tubeShellFoldMusic) window.__tubeShellFoldMusic();
-          return;
-        }
-        // Music stacks copies of the same page in the history while it loads (redirects,
-        // added parameters): going back to one of them looks like nothing happened. Keep
-        // going back past copies of where we started; with nothing behind (the app
-        // reopened straight on this page) Music goes home, YouTube to the last search.
-        const samePage = function (a, b) {
-          const id = function (u) {
-            const url = new URL(u, location.href);
-            return url.pathname + '|' + (url.searchParams.get('list') || '') + '|' + (url.searchParams.get('v') || '');
-          };
-          return id(a) === id(b);
-        };
-        const start = location.href;
-        const step = function (n) {
-          const before = location.href;
-          history.back();
-          setTimeout(function () {
-            if (location.href === before) {
-              const lastSearch = onMusic ? '' : pref('tubeShellLastSearch', '');
-              if (lastSearch && lastSearch !== location.pathname + location.search) location.assign(lastSearch);
-              else window.__tubeShell.home();
-            } else if (samePage(location.href, start) && n < 5) {
-              step(n + 1);
-            }
-          }, 250);
-        };
-        step(0);
+        if (isMusicPlayerOpen()) return void foldMusicPlayer();
+        const lastSearch = onMusic ? '' : pref('tubeShellLastSearch', '');
+        if (lastSearch && lastSearch !== page()) location.assign(lastSearch);
+        else window.__tubeShell.home();
       },
       // Tapping the tab you are on in the app: back to the site's home page.
       // In-app navigation first (the music keeps playing): Music's logo link, then its
@@ -1127,35 +1139,33 @@
       },
       // Playback speed and video quality from the app's menu, remembered per site.
       speed: function (rate) {
-        try {
-          localStorage.setItem('tubeShellSpeed', String(rate));
-        } catch (e) {}
+        setPref('tubeShellSpeed', String(rate));
         document.querySelectorAll('video, audio').forEach(applySpeed);
       },
       quality: function (quality) {
-        try {
-          localStorage.setItem('tubeShellQuality', quality);
-        } catch (e) {}
+        setPref('tubeShellQuality', quality);
         const player = document.getElementById('movie_player');
         if (player && player.setPlaybackQualityRange) applyQuality(player);
       },
       // The app reports the connection (mobile data / Low Data Mode or not) and the
       // data saver switch; the video on screen follows at once.
-      network: function (cellular) {
-        window.__tubeShellCellular = cellular;
+      network: function (onCellular) {
+        cellular = onCellular;
         const player = document.getElementById('movie_player');
         if (player && player.setPlaybackQualityRange && location.pathname === '/watch') applyQuality(player);
       },
       saver: function (on) {
-        try {
-          localStorage.setItem('tubeShellSaver', on ? 'on' : 'off');
-        } catch (e) {}
-        window.__tubeShell.network(window.__tubeShellCellular);
+        setPref('tubeShellSaver', on ? 'on' : 'off');
+        window.__tubeShell.network(cellular);
+      },
+      // Sleep timer "at the end of the song" on or off (section 5).
+      sleepAtEnd: function (on) {
+        sleepAtEnd = on;
       },
       // Siri / Shortcuts "play my music": resume the song on screen, else the first
       // "Play all" on the page (Home's quick picks).
       play: function () {
-        window.__tubeShellPlayRequested = true;
+        playRequested = true;
         const media = document.querySelector('video, audio');
         if (media && media.currentSrc) {
           media.play();
@@ -1167,9 +1177,7 @@
       // Remembered: captions stay off on every video unless turned on here.
       subtitles: function () {
         const on = pref('tubeShellCaptions', 'off') !== 'on';
-        try {
-          localStorage.setItem('tubeShellCaptions', on ? 'on' : 'off');
-        } catch (e) {}
+        setPref('tubeShellCaptions', on ? 'on' : 'off');
         root.classList.toggle('tubeshell-captions', on);
         const player = document.getElementById('movie_player');
         if (!player) return;
@@ -1196,7 +1204,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 8b. Music history: the full player is not a page of its own
+  // 11. Music history: the full player is not a page of its own
   // ---------------------------------------------------------------------------
   // Music pushes /watch when a song opens and, on closing the player, pushes the page
   // underneath again: Home, Playlist, Song, Playlist. Back from the playlist then reopened
@@ -1213,16 +1221,13 @@
         return false;
       }
     };
-    const here = function () {
-      return location.pathname + location.search;
-    };
     let openedFrom = null; // the page a song replaced in the history
     history.pushState = function (state, title, url) {
-      if (url != null && isWatch(url) && !isWatch(here())) {
-        openedFrom = { state: history.state, url: here() };
+      if (url != null && isWatch(url) && !isWatch(page())) {
+        openedFrom = { state: history.state, url: page() };
         return nativeReplace(state, title, url);
       }
-      if (url != null && !isWatch(url) && isWatch(here())) {
+      if (url != null && !isWatch(url) && isWatch(page())) {
         const from = openedFrom;
         openedFrom = null;
         const target = new URL(url, location.href);
@@ -1236,7 +1241,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 9. Music player gestures: swipe the artwork for next / previous, tap it for lyrics
+  // 12. Music player gestures: swipe the artwork for next / previous, tap it for lyrics
   // ---------------------------------------------------------------------------
 
   if (isTopFrame && location.hostname === 'music.youtube.com') {
@@ -1246,13 +1251,7 @@
       ' { font-size: 24px !important; line-height: 1.45 !important; font-weight: 600 !important; }\n' +
       // Moves on the artwork are ours: sideways = next/previous, down = fold the player.
       'ytmusic-player-page ytmusic-player#player { touch-action: none !important; }';
-    const addLyricsStyle = function () {
-      const style = document.createElement('style');
-      style.textContent = lyricsCss;
-      (document.head || document.documentElement).appendChild(style);
-    };
-    if (document.documentElement) addLyricsStyle();
-    else document.addEventListener('DOMContentLoaded', addLyricsStyle, { once: true });
+    addCss(lyricsCss);
 
     // Music's own in-app navigation (no reload, the song keeps its place in the mini
     // player): the endpoint its links carry, built from a page address.
@@ -1294,18 +1293,16 @@
       { capture: true, passive: true, once: true }
     );
     const restoringSong = function () {
-      return launchedOnSong && !touchedSinceLaunch && Date.now() - launchedAt < 15000;
+      return launchedOnSong && !touchedSinceLaunch && Date.now() - launchedAt < LAUNCH_WINDOW_MS;
     };
 
     // Tell the app while the full player is open (see WebTab.setMusicPlayerOpen).
     let playerOpen = null;
     const reportPlayer = function () {
-      const open = Boolean(document.querySelector('ytmusic-app-layout[player-page-open]'));
+      const open = isMusicPlayerOpen();
       if (open === playerOpen) return;
       playerOpen = open;
-      try {
-        window.webkit.messageHandlers.tubeshell.postMessage({ type: 'musicPlayer', open });
-      } catch (e) {}
+      post({ type: 'musicPlayer', open });
       if (!open && window.__tubeShellReturnTo) {
         // Folded at launch: back to the page the song was playing over.
         const back = window.__tubeShellReturnTo;
@@ -1332,7 +1329,7 @@
     };
 
     // For about three seconds after the full player opens: what each gesture does.
-    // Arrows on the artwork (sideways = previous / next song), "drag down to close" above
+    // Arrows on the artwork (sideways = previous / next song), "drag down" (Back) above
     // it, and "from the edge: back" low on the left, where the edge swipe is meant.
     // Liquid Glass look: translucent, blurred and saturated, with a light rim.
     // Motion, iOS style: each pill settles in (slight zoom out of a blur), a specular
@@ -1390,11 +1387,6 @@
       ' 25% { scale: .93; animation-timing-function: cubic-bezier(.3,0,.2,1); }' +
       ' 55% { scale: 1.02; animation-timing-function: cubic-bezier(.3,0,.2,1); } 80%, 100% { scale: 1; } }' +
       '@keyframes tsh-out { 0% { opacity: 1; scale: 1; } 60% { opacity: .1; } 100% { opacity: 0; scale: .96; } }';
-    // Device language (set by the app): Spanish or English.
-    const es = String(window.__tubeShellLang || navigator.language || '').toLowerCase().indexOf('es') === 0;
-    const T = es
-      ? { prev: 'Anterior', next: 'Siguiente', back: 'Atrás', lyrics: 'Toca: letra' }
-      : { prev: 'Previous', next: 'Next', back: 'Back', lyrics: 'Tap: lyrics' };
     let hintsShown = null;
     let hintTries = 0;
     let lastArtTop = null;
@@ -1412,12 +1404,7 @@
         if (hintTries++ < 20) setTimeout(showGestureHints, 100);
         return;
       }
-      if (!document.getElementById('tubeshell-hint-style')) {
-        const style = document.createElement('style');
-        style.id = 'tubeshell-hint-style';
-        style.textContent = hintCss;
-        document.head.appendChild(style);
-      }
+      if (!document.getElementById('tubeshell-hint-style')) addCss(hintCss, 'tubeshell-hint-style');
       const layer = document.createElement('div');
       layer.className = 'tubeshell-hints';
       // Built node by node: Music's Trusted Types policy rejects innerHTML.
@@ -1543,37 +1530,8 @@
 
     // Drag the full player down (from the artwork or the space above it) to fold it into
     // the mini player, like the app: it follows the finger; past 120 pt it folds.
-    // Fold the full player into the mini player, as its ⌄ button does: the inner button
-    // is the one that reacts; if the player is still open, try the button's host, then
-    // Escape (which Music also handles).
-    const isOpen = function () {
-      return Boolean(document.querySelector('ytmusic-app-layout[player-page-open]'));
-    };
-    const foldMusicPlayer = function () {
-      const attempts = [
-        function () {
-          const b = document.querySelector('ytmusic-player-page #collapse-button button');
-          if (b) b.click();
-        },
-        function () {
-          const b = document.querySelector('ytmusic-player-page #collapse-button');
-          if (b) b.click();
-        },
-        function () {
-          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
-        },
-      ];
-      let i = 0;
-      const next = function () {
-        if (!isOpen() || i >= attempts.length) return;
-        attempts[i++]();
-        setTimeout(next, 120);
-      };
-      next();
-    };
-    window.__tubeShellFoldMusic = foldMusicPlayer;
-    const pageAt = function (target, y) {
-      if (!(target instanceof Element) || !document.querySelector('ytmusic-app-layout[player-page-open]')) return null;
+    const pageAt = function (target) {
+      if (!(target instanceof Element) || !isMusicPlayerOpen()) return null;
       const page = target.closest('ytmusic-player-page');
       // Anywhere on the player except its controls, progress bar and Up next panel.
       if (!page || target.closest('#side-panel, ytmusic-player-controls, tp-yt-paper-slider, #progress-bar, button, a')) return null;
@@ -1584,7 +1542,7 @@
       'touchstart',
       function (event) {
         const touch = event.touches[0];
-        const page = event.touches.length === 1 ? pageAt(event.target, touch.clientY) : null;
+        const page = event.touches.length === 1 ? pageAt(event.target) : null;
         fold = page ? { page, x: touch.clientX, y: touch.clientY, dy: 0, active: false } : null;
       },
       { capture: true, passive: true }
@@ -1618,7 +1576,7 @@
         haptic();
         foldMusicPlayer();
         const settle = function () {
-          if (isOpen() && Date.now() - releasedAt < 1200) return void setTimeout(settle, 30);
+          if (isMusicPlayerOpen() && Date.now() - releasedAt < 1200) return void setTimeout(settle, 30);
           page.style.transition = 'transform 0.25s ease-out';
           page.style.transform = '';
           setTimeout(function () {
@@ -1640,15 +1598,13 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 11. YouTube: captions off by default; drag the video down to go back
+  // 13. YouTube: mini player mode, captions off by default, drag the video down to minimize
   // ---------------------------------------------------------------------------
 
   if (isTopFrame && location.hostname === 'm.youtube.com') {
     const root = document.documentElement;
     if (pref('tubeShellCaptions', 'off') === 'on') root.classList.add('tubeshell-captions');
 
-    // Captions: hidden everywhere (feed previews included) unless turned on from the
-    // app's menu; on the watch page the captions module is also unloaded.
     // Mini player mode (set by the app): the video fills the small floating page.
     const miniCss =
       'html.tubeshell-mini #player-container-id { position: fixed !important; top: 0 !important; left: 0 !important;' +
@@ -1656,18 +1612,14 @@
       ' opacity: 1 !important; box-shadow: none !important; background: #000 !important; padding: 0 !important; }\n' +
       'html.tubeshell-mini :is(#player-container-id #player, #movie_player, video.html5-main-video)' +
       ' { width: 100vw !important; height: 100vh !important; left: 0 !important; top: 0 !important; object-fit: contain !important; }\n';
-    const captionCss = miniCss +
+    addCss(miniCss);
+
+    // Captions: hidden everywhere (feed previews included) unless turned on from the
+    // app's menu; on the watch page the captions module is also unloaded.
+    const captionCss =
       'html:not(.tubeshell-captions) :is(.ytp-caption-window-container, .caption-window, .captions-text)' +
-      ' { display: none !important; }\n' +
-      // Vertical drags on the watch-page video are ours (drag down to go back).
-      '#player-container-id { touch-action: pan-x !important; }';
-    const addCaptionStyle = function () {
-      const style = document.createElement('style');
-      style.textContent = captionCss;
-      (document.head || root).appendChild(style);
-    };
-    if (root) addCaptionStyle();
-    else document.addEventListener('DOMContentLoaded', addCaptionStyle, { once: true });
+      ' { display: none !important; }\n';
+    addCss(captionCss);
     document.addEventListener(
       'playing',
       function () {
@@ -1680,8 +1632,10 @@
       true
     );
 
-    // Drag the watch-page video down to go back, like the YouTube app. The player follows
-    // the finger; past a third of its height it goes back, otherwise it springs back.
+    // Drag the watch-page video down to minimize it, like the YouTube app. The player
+    // follows the finger; past a third of its height the app shrinks it into the mini
+    // player, otherwise it springs back. Vertical drags on the video are ours (no scrolling).
+    addCss('#player-container-id { touch-action: pan-x !important; }');
     const playerBox = function (target) {
       return location.pathname === '/watch' && !document.fullscreenElement && target instanceof Element
         ? target.closest('#player-container-id')
@@ -1723,26 +1677,18 @@
       drag = null;
       if (!active) return;
       box.style.transition = 'transform 0.2s ease, opacity 0.2s ease';
-      if (dy > box.offsetHeight / 3) {
-        // The app shrinks this whole page into a floating mini player and opens a second
-        // YouTube page underneath (leaving the watch page would stop the video). Going
-        // back is the left-edge swipe.
-        box.style.transform = box.style.opacity = '';
-        try {
-          window.webkit.messageHandlers.tubeshell.postMessage({
-            type: 'minimize',
-          });
-        } catch (e) {}
-      } else {
-        box.style.transform = box.style.opacity = '';
-      }
+      box.style.transform = box.style.opacity = '';
+      // The app shrinks this whole page into a floating mini player and opens a second
+      // YouTube page underneath (leaving the watch page would stop the video). Going
+      // back is the left-edge swipe.
+      if (dy > box.offsetHeight / 3) post({ type: 'minimize' });
     };
     document.addEventListener('touchend', release, { capture: true, passive: true });
     document.addEventListener('touchcancel', release, { capture: true, passive: true });
   }
 
   // ---------------------------------------------------------------------------
-  // 12. Fullscreen: leave it when the iPhone is upright again, keep playing on exit
+  // 14. Fullscreen: leave it when the iPhone is upright again, keep playing on exit
   // ---------------------------------------------------------------------------
   // While a video is fullscreen iOS does not tell the app about rotations, so the page
   // watches them itself. Leaving fullscreen (rotation, swipe down, button) pauses the
@@ -1797,7 +1743,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 13. YouTube list: tapped videos open in the app's player, over the list
+  // 15. YouTube list: tapped videos open in the app's player, over the list
   // ---------------------------------------------------------------------------
   // The list (home, search, channel) never leaves its page, so it is exactly where it
   // was under the mini player. Links inside the player page navigate normally.
@@ -1815,11 +1761,7 @@
           return;
         }
         if (url.hostname !== location.hostname || url.pathname !== '/watch' || !url.searchParams.get('v')) return;
-        try {
-          window.webkit.messageHandlers.tubeshell.postMessage({ type: 'openVideo', url: url.href });
-        } catch (e) {
-          return;
-        }
+        if (!post({ type: 'openVideo', url: url.href })) return;
         event.preventDefault();
         event.stopImmediatePropagation();
       },

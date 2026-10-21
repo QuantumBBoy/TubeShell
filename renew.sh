@@ -14,13 +14,14 @@ cd "$(dirname "$0")"
 # Your iPhone's identifier goes in renew.local (not committed), e.g.
 #   DEVICE=00008130-000000000000001C
 # List yours with: xcrun devicectl list devices
+# If you changed the Bundle Identifier, set BUNDLE=<yours> there too.
 DEVICE=""
+BUNDLE=es.personal.tubeshell
 [ -f renew.local ] && . ./renew.local
 if [ -z "$DEVICE" ]; then
   echo "Falta renew.local con DEVICE=<identificador del iPhone> (xcrun devicectl list devices)" >&2
   exit 1
 fi
-BUNDLE=es.personal.tubeshell
 RENEW_DAYS=2
 
 LABEL=es.personal.tubeshell.renew
@@ -35,6 +36,13 @@ APP=build/Build/Products/Debug-iphoneos/TubeShell.app
 log() { echo "$(date '+%F %T') $*" >>"$LOG"; }
 notify() { osascript -e "display notification \"$1\" with title \"Tube\"" >/dev/null 2>&1 || true; }
 profile_plist() { security cms -D -i "$1" 2>/dev/null; }
+# Warns with $1, only in the last day and at most every 6 hours.
+nag() {
+  if ((expiry - now < 86400)) && [ -z "$(find "$NAGGED" -mmin -360 2>/dev/null)" ]; then
+    notify "$1"
+    touch "$NAGGED"
+  fi
+}
 
 case "${1:-}" in
   --install-agent)
@@ -75,11 +83,7 @@ fi
 # "connected", "available" or "available (paired)"; never "unavailable".
 if ! xcrun devicectl list devices 2>/dev/null | grep "$DEVICE" | grep -qE '[[:space:]](connected|available)'; then
   log "iPhone not reachable, will retry"
-  # Warn at most every 6 hours, and only in the last day.
-  if ((expiry - now < 86400)) && [ -z "$(find "$NAGGED" -mmin -360 2>/dev/null)" ]; then
-    notify "La firma caduca pronto. Conecta el iPhone (cable o misma wifi) y desbloquéalo para renovarla."
-    touch "$NAGGED"
-  fi
+  nag "La firma caduca pronto. Conecta el iPhone (cable o misma wifi) y desbloquéalo para renovarla."
   exit 0
 fi
 
@@ -103,11 +107,7 @@ fi
 
 if ! xcrun devicectl device install app --device "$DEVICE" "$APP" >>"$LOG" 2>&1; then
   log "install failed, will retry"
-  # Same warning as when the iPhone is not found (last day, at most every 6 hours).
-  if ((expiry - now < 86400)) && [ -z "$(find "$NAGGED" -mmin -360 2>/dev/null)" ]; then
-    notify "No se pudo instalar la renovación. Desbloquea el iPhone y déjalo conectado."
-    touch "$NAGGED"
-  fi
+  nag "No se pudo instalar la renovación. Desbloquea el iPhone y déjalo conectado."
   exit 0
 fi
 

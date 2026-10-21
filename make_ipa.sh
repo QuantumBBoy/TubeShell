@@ -6,7 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-rm -rf build TubeShell.ipa
+# Its own folders under build/, so renew.sh's build there is left alone.
+rm -rf build/ipa-dd build/ipa TubeShell.ipa
 
 xcodebuild \
   -project TubeShell.xcodeproj \
@@ -14,14 +15,14 @@ xcodebuild \
   -configuration Release \
   -sdk iphoneos \
   -destination 'generic/platform=iOS' \
-  -derivedDataPath build \
+  -derivedDataPath build/ipa-dd \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGN_IDENTITY="" \
   build
 
 mkdir -p build/ipa/Payload
-cp -R build/Build/Products/Release-iphoneos/TubeShell.app build/ipa/Payload/
+cp -R build/ipa-dd/Build/Products/Release-iphoneos/TubeShell.app build/ipa/Payload/
 (cd build/ipa && zip -qry ../../TubeShell.ipa Payload)
 
 echo ""

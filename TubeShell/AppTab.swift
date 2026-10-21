@@ -26,13 +26,9 @@ enum AppTab: Int, CaseIterable {
     }
   }
 
-  /// Last page visited in this tab (saved by WebTab), so the app reopens where you were.
-  var lastURLKey: String { "TubeShell.lastURL.\(rawValue)" }
-  /// Second the last song or video was at: ["v": video id, "t": seconds].
-  var lastPositionKey: String { "TubeShell.lastPosition.\(rawValue)" }
-
-  /// The YouTube video that was open in the player (WebTab with isPlayer).
-  static let lastPlayerURLKey = "TubeShell.lastPlayerURL"
+  var searchPlaceholder: String {
+    self == .music ? L("Buscar en Music", "Search Music") : L("Buscar en YouTube", "Search YouTube")
+  }
 
   var startURL: URL {
     // Music with a song in the mini player when the app was closed: reopen the song (it
@@ -40,7 +36,7 @@ enum AppTab: Int, CaseIterable {
     if self == .music, let song = lastMusicSong, Self.musicReturnPath != nil {
       return URL(string: "https://music.youtube.com/watch?v=\(song)")!
     }
-    if let saved = UserDefaults.standard.string(forKey: lastURLKey),
+    if let saved = UserDefaults.standard.string(forKey: DefaultsKey.lastURL(self)),
       let url = URL(string: saved),
       AppTab.preferred(for: url) == self,
       // YouTube videos reopen in the player, over the list.
@@ -53,7 +49,7 @@ enum AppTab: Int, CaseIterable {
 
   /// The last song heard in Music (saved with its second while it plays, also folded).
   private var lastMusicSong: String? {
-    guard let saved = UserDefaults.standard.dictionary(forKey: AppTab.music.lastPositionKey),
+    guard let saved = UserDefaults.standard.dictionary(forKey: DefaultsKey.lastPosition(.music)),
       let id = saved["v"] as? String,
       id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
     else { return nil }
@@ -63,7 +59,7 @@ enum AppTab: Int, CaseIterable {
   /// The Music page that was showing under the folded song (path and query), or nil when
   /// it was the song itself or home.
   static var musicReturnPath: String? {
-    guard let saved = UserDefaults.standard.string(forKey: AppTab.music.lastURLKey),
+    guard let saved = UserDefaults.standard.string(forKey: DefaultsKey.lastURL(.music)),
       let url = URLComponents(string: saved), url.host == "music.youtube.com",
       url.path != "/watch", url.path != "/", !url.path.isEmpty
     else { return nil }
@@ -94,6 +90,23 @@ enum AppTab: Int, CaseIterable {
     }
     return nil
   }
+}
+
+/// Every UserDefaults key the app stores.
+enum DefaultsKey {
+  /// The tab that was showing (raw value of AppTab).
+  static let lastTab = "TubeShell.lastTab"
+  /// The YouTube video that was open in the player (WebTab with isPlayer).
+  static let lastPlayerURL = "TubeShell.lastPlayerURL"
+  static let quality = "TubeShell.quality"
+  static let dataSaver = "TubeShell.dataSaver"
+
+  /// Last page visited in a tab (saved by WebTab), so the app reopens where you were.
+  static func lastURL(_ tab: AppTab) -> String { "TubeShell.lastURL.\(tab.rawValue)" }
+  /// Second the last song or video was at: ["v": video id, "t": seconds].
+  static func lastPosition(_ tab: AppTab) -> String { "TubeShell.lastPosition.\(tab.rawValue)" }
+  static func speed(_ tab: AppTab) -> String { "TubeShell.speed.\(tab.rawValue)" }
+  static func recentSearches(_ tab: AppTab) -> String { "TubeShell.recentSearches.\(tab.rawValue)" }
 }
 
 /// The app's own labels follow the device language: Spanish, else English.

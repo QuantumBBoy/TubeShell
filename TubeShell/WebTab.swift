@@ -94,7 +94,7 @@ final class WebTab: NSObject {
       )
     }
     // Reopen the song or video at the second it was left; Shields.js seeks once it loads.
-    if let saved = UserDefaults.standard.dictionary(forKey: tab.lastPositionKey),
+    if let saved = UserDefaults.standard.dictionary(forKey: DefaultsKey.lastPosition(tab)),
       let id = saved["v"] as? String, let seconds = saved["t"] as? Int,
       id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
       URLComponents(url: startURL, resolvingAgainstBaseURL: false)?
@@ -177,12 +177,12 @@ final class WebTab: NSObject {
             self.owner?.playerLeftVideo(self, to: url)
             return
           }
-          UserDefaults.standard.set(url.absoluteString, forKey: AppTab.lastPlayerURLKey)
+          UserDefaults.standard.set(url.absoluteString, forKey: DefaultsKey.lastPlayerURL)
         } else if self.tab == .youtube, url.path == "/watch" {
           // The list reached a video without a tapped link: play it in the player.
           self.owner?.listOpenedVideo(self, url: url)
         } else {
-          UserDefaults.standard.set(url.absoluteString, forKey: self.tab.lastURLKey)
+          UserDefaults.standard.set(url.absoluteString, forKey: DefaultsKey.lastURL(self.tab))
         }
       }
     }
@@ -260,8 +260,8 @@ final class WebTab: NSObject {
     webView.evaluateJavaScript(script, completionHandler: nil)
   }
 
-  /// Runs one of the page commands Shields.js defines on window.__tubeShell
-  /// (search, account, go(n), history), standing in for the hidden page headers.
+  /// Runs one of the page commands Shields.js defines on window.__tubeShell (home, back,
+  /// searchFor, account, go(n), history, speed, ...), standing in for the hidden page headers.
   func run(_ command: String) {
     // Right after launch the page is still loading: run it once it has.
     if webView.isLoading || webView.url == nil {
@@ -274,7 +274,7 @@ final class WebTab: NSObject {
   /// Sleep timer "at the end of the song": Shields.js pauses when the track ends.
   func setSleepAtEndOfTrack(_ enabled: Bool) {
     sleepAtEnd = enabled
-    webView.evaluateJavaScript("window.__tubeShellSleepAtEnd = \(enabled); void 0;", completionHandler: nil)
+    run("sleepAtEnd(\(enabled))")
   }
 
   // MARK: - Page state that must survive a reload
@@ -296,7 +296,7 @@ final class WebTab: NSObject {
   private func reapplyPageState() {
     run("network(\(cellular))")
     if miniMode { run("mini(true)") }
-    if sleepAtEnd { webView.evaluateJavaScript("window.__tubeShellSleepAtEnd = true; void 0;", completionHandler: nil) }
+    if sleepAtEnd { run("sleepAtEnd(true)") }
   }
 
   /// Set when iOS killed this page while it was not on screen (see below).
@@ -366,12 +366,16 @@ final class WebTab: NSObject {
     if offlineView.superview != nil { retryAfterOffline() }
   }
 
+  /// WebKitErrorDomain codes that are not failures: 102 frame load interrupted (our link
+  /// policy stopped it), 204 plug-in will handle the load.
+  private static let ignoredWebKitErrors = [102, 204]
+
   fileprivate func navigationFailed(_ error: Error) {
     let error = error as NSError
     // A cancelled load (a new one replaced it) or one stopped by our own link policy is
     // not a failure; anything else would leave a blank page, so it gets the retry screen.
     if error.domain == NSURLErrorDomain, error.code == NSURLErrorCancelled { return }
-    if error.domain == "WebKitErrorDomain", [102, 204].contains(error.code) { return }
+    if error.domain == "WebKitErrorDomain", Self.ignoredWebKitErrors.contains(error.code) { return }
     showOffline(for: error.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
   }
 
@@ -405,6 +409,7 @@ final class WebTab: NSObject {
 
   fileprivate func handle(_ message: WKScriptMessage) {
     guard
+      message.frameInfo.isMainFrame,
       let body = message.body as? [String: Any],
       let type = body["type"] as? String
     else { return }
@@ -422,7 +427,7 @@ final class WebTab: NSObject {
     } else if type == "slept" {
       owner?.sleepDidPauseAtEndOfTrack()
     } else if type == "position", let id = body["v"] as? String, let seconds = body["t"] as? Int {
-      UserDefaults.standard.set(["v": id, "t": seconds], forKey: tab.lastPositionKey)
+      UserDefaults.standard.set(["v": id, "t": seconds], forKey: DefaultsKey.lastPosition(tab))
     }
   }
 
@@ -493,7 +498,7 @@ extension WebTab: WKNavigationDelegate, WKUIDelegate {
   func webView(
     _ webView: WKWebView,
     decidePolicyFor navigationAction: WKNavigationAction,
-    decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
   ) {
     decisionHandler(policy(for: navigationAction))
   }
@@ -515,8 +520,6 @@ extension WebTab: WKNavigationDelegate, WKUIDelegate {
     return nil
   }
 
-  /// Transparent only until the first page paints (no white flash); opaque afterwards
-  /// so the strips behind the status bar and home indicator take the page's colour.
   func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
     navigationFailed(error)
   }
@@ -526,6 +529,8 @@ extension WebTab: WKNavigationDelegate, WKUIDelegate {
   }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    // Transparent only until the first page paints (no white flash); opaque afterwards
+    // so the strips behind the status bar and home indicator take the page's colour.
     webView.isOpaque = true
     offlineView.removeFromSuperview()
     reapplyPageState()

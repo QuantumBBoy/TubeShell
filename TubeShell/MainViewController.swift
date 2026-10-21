@@ -128,9 +128,12 @@ final class MainViewController: UIViewController {
       self.isReady = true
       self.select(self.pendingTab ?? .music)
       self.pendingTab = nil
-      // The video that was open in the player comes back over the list, paused.
-      if let saved = UserDefaults.standard.string(forKey: AppTab.lastPlayerURLKey), let url = URL(string: saved) {
-        self.openVideo(url, autoplay: false, show: self.selectedTab == .youtube)
+      // The video that was open in the player comes back over the list, paused, the first
+      // time YouTube is shown. Made at launch while on Music, YouTube would start it in the
+      // background after the hold (and that stops the music).
+      if let saved = UserDefaults.standard.string(forKey: AppTab.lastPlayerURLKey) {
+        self.pendingPlayerURL = URL(string: saved)
+        if self.selectedTab == .youtube { self.select(.youtube) }
       }
       ShortcutActions.handler = { [weak self] action in self?.perform(action) }
     }
@@ -144,6 +147,10 @@ final class MainViewController: UIViewController {
       return
     }
     let webTab = webTabs[tab] ?? makeWebTab(for: tab)
+    if tab == .youtube, let url = pendingPlayerURL {
+      pendingPlayerURL = nil
+      openVideo(url, autoplay: false, show: false)
+    }
     // Bring to front instead of hiding the other view: a hidden web view
     // counts as "not visible" for WebKit, which can pause its playback.
     contentView.bringSubviewToFront(webTab.webView)
@@ -217,6 +224,8 @@ final class MainViewController: UIViewController {
   private let miniPlayButton = UIButton(type: .system)
   private var playerTab: WebTab?
   private var playerMinimized = false
+  /// Video to reopen in the player once YouTube is shown (see viewDidLoad).
+  private var pendingPlayerURL: URL?
   /// Where the mini player was left (its centre); nil = bottom right.
   private var miniCenter: CGPoint?
   /// Centre when a drag began; while dragging, layout passes leave the frame alone.

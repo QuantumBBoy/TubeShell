@@ -122,7 +122,8 @@ final class WebTab: NSObject {
     webView.allowsBackForwardNavigationGestures = true
     refreshControl.tintColor = .white
     refreshControl.addTarget(self, action: #selector(pulledToRefresh), for: .valueChanged)
-    webView.scrollView.refreshControl = refreshControl
+    // Not on YouTube's player: dragging the video down is the mini player gesture.
+    if !isPlayer { webView.scrollView.refreshControl = refreshControl }
     // The system back swipe needs a page behind; when there is none (the app reopened
     // straight on a video), the same swipe runs Shields.js's back() fallback instead.
     let edgeSwipe = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(edgeSwiped(_:)))
@@ -164,8 +165,22 @@ final class WebTab: NSObject {
     }
   }
 
+  /// Music's full player open: its own gestures (drag down to fold, sideways to change
+  /// song) must not start pull to refresh or WebKit's back swipe, which take the touch
+  /// away from the page and leave the player where it was.
+  private var musicPlayerOpen = false
+
+  private func setMusicPlayerOpen(_ open: Bool) {
+    musicPlayerOpen = open
+    webView.allowsBackForwardNavigationGestures = !open
+    webView.scrollView.refreshControl = open ? nil : refreshControl
+  }
+
   @objc private func edgeSwiped(_ gesture: UIScreenEdgePanGestureRecognizer) {
-    guard gesture.state == .ended, !webView.canGoBack, gesture.translation(in: webView).x > 80 else { return }
+    guard gesture.state == .ended, gesture.translation(in: webView).x > 80 else { return }
+    // Music's full player is not a page of its own: the edge swipe folds it.
+    if musicPlayerOpen { return run("back()") }
+    guard !webView.canGoBack else { return }
     // Back from the player's first video: fold it into the mini player, like the app.
     if isPlayer { owner?.minimize(self) } else { run("back()") }
   }
@@ -309,6 +324,8 @@ final class WebTab: NSObject {
       owner?.mediaDidStartPlaying(in: tab, from: self)
     } else if type == "openVideo", let link = body["url"] as? String, let url = URL(string: link) {
       owner?.openVideo(url)
+    } else if type == "musicPlayer", let open = body["open"] as? Bool {
+      setMusicPlayerOpen(open)
     } else if type == "minimize" {
       owner?.minimize(self)
     } else if type == "slept" {

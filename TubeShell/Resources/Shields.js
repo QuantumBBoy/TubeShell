@@ -1144,6 +1144,27 @@
     if (document.documentElement) addLyricsStyle();
     else document.addEventListener('DOMContentLoaded', addLyricsStyle, { once: true });
 
+    // Tell the app while the full player is open (see WebTab.setMusicPlayerOpen).
+    let playerOpen = null;
+    const reportPlayer = function () {
+      const open = Boolean(document.querySelector('ytmusic-app-layout[player-page-open]'));
+      if (open === playerOpen) return;
+      playerOpen = open;
+      try {
+        window.webkit.messageHandlers.tubeshell.postMessage({ type: 'musicPlayer', open });
+      } catch (e) {}
+    };
+    const watchPlayer = function () {
+      new MutationObserver(reportPlayer).observe(document.documentElement, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['player-page-open'],
+      });
+      reportPlayer();
+    };
+    if (document.documentElement) watchPlayer();
+    else document.addEventListener('DOMContentLoaded', watchPlayer, { once: true });
+
     const artworkAt = function (target) {
       return target instanceof Element ? target.closest('ytmusic-player-page ytmusic-player#player') : null;
     };

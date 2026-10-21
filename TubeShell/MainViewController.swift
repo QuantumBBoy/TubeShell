@@ -1,4 +1,5 @@
 import AVKit
+import MediaPlayer
 import Network
 import Speech
 import UIKit
@@ -260,6 +261,12 @@ final class MainViewController: UIViewController {
   // MARK: - YouTube player and mini player (state; the behaviour is in MainViewController+Player.swift)
 
   let miniView = UIView()
+  /// Off screen: how the volume gesture sets the system volume (iOS has no other way).
+  lazy var volumeView: MPVolumeView = {
+    let volume = MPVolumeView(frame: CGRect(x: -200, y: -200, width: 100, height: 40))
+    view.addSubview(volume)
+    return volume
+  }()
   let miniPlayButton = UIButton(type: .system)
   var playerTab: WebTab?
   var playerMinimized = false
@@ -445,6 +452,7 @@ final class MainViewController: UIViewController {
 
     miniView.isHidden = true
     miniView.backgroundColor = .black
+    miniView.overrideUserInterfaceStyle = .dark  // dark glass buttons over the video
     miniView.layer.cornerRadius = 10
     miniView.layer.cornerCurve = .continuous
     miniView.layer.borderWidth = 0.5
@@ -458,12 +466,25 @@ final class MainViewController: UIViewController {
     close.tintColor = UIColor(white: 1, alpha: 0.9)
     close.accessibilityLabel = L("Cerrar", "Close")
     close.frame = CGRect(x: 0, y: 0, width: 36, height: 36)
+    if #available(iOS 26.0, *) {
+      // iOS 26: real Liquid Glass buttons over the video.
+      var glass = UIButton.Configuration.clearGlass()  // the variant meant for over media
+      glass.cornerStyle = .capsule
+      glass.baseForegroundColor = .white
+      glass.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .bold))
+      close.setImage(nil, for: .normal)  // the plain image would win over the configuration's
+      close.configuration = glass
+      close.frame.size = CGSize(width: 28, height: 28)
+      glass.image = nil
+      miniPlayButton.configuration = glass
+    } else {
+      miniPlayButton.backgroundColor = UIColor(white: 0, alpha: 0.45)
+      miniPlayButton.layer.cornerRadius = 20
+    }
     close.autoresizingMask = [.flexibleLeftMargin, .flexibleBottomMargin]
     close.addTarget(self, action: #selector(closeMini), for: .touchUpInside)
     miniView.addSubview(close)
     miniPlayButton.tintColor = .white
-    miniPlayButton.backgroundColor = UIColor(white: 0, alpha: 0.45)
-    miniPlayButton.layer.cornerRadius = 20
     miniPlayButton.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
     miniPlayButton.addTarget(self, action: #selector(toggleMiniPlayback), for: .touchUpInside)
     setMiniPlayButton(paused: false)

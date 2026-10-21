@@ -492,6 +492,8 @@ final class WebTab: NSObject {
       setMusicPlayerOpen(open)
     } else if type == "minimize" {
       owner?.minimize(self)
+    } else if type == "adjust", let kind = body["kind"] as? String, let delta = body["delta"] as? Double {
+      owner?.adjust(kind, by: delta, in: self)
     } else if type == "slept" {
       owner?.sleepDidPauseAtEndOfTrack()
     } else if type == "position", let id = body["v"] as? String, let seconds = body["t"] as? Int {

@@ -50,6 +50,10 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
       systemItem: .cancel, primaryAction: UIAction { [weak self] _ in self?.close() })
     tableView.register(UITableViewCell.self, forCellReuseIdentifier: "recent")
     tableView.keyboardDismissMode = .onDrag
+    if #available(iOS 26.0, *) {
+      // See-through, so the sheet shows iOS's own Liquid Glass with the page behind it.
+      tableView.backgroundColor = .clear
+    }
   }
 
   /// Closed by swiping it down or tapping outside: the microphone stops, nothing is searched.
@@ -113,12 +117,12 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
     ]
     guard let requestURL = url.url else { return }
     // Response: ["query", ["suggestion", ...], ...]
-    suggestionTask = URLSession.shared.dataTask(with: requestURL) { data, _, _ in
+    suggestionTask = URLSession.shared.dataTask(with: requestURL) { [weak self] data, _, _ in
       guard let data,
         let json = try? JSONSerialization.jsonObject(with: data) as? [Any],
         json.count > 1, let list = json[1] as? [String]
       else { return }
-      DispatchQueue.main.async { [weak self] in
+      DispatchQueue.main.async {
         guard let self, self.searchBar.text?.trimmingCharacters(in: .whitespaces) == query else { return }
         self.suggestions = Array(list.prefix(10))
         self.tableView.reloadData()
@@ -149,6 +153,7 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
     content.text = rows[indexPath.row]
     content.image = UIImage(systemName: showingSuggestions ? "magnifyingglass" : "clock.arrow.circlepath")
     cell.contentConfiguration = content
+    if #available(iOS 26.0, *) { cell.backgroundColor = .clear }
     // Suggestions: the arrow puts the text in the bar to keep typing, like YouTube.
     if showingSuggestions {
       let fill = UIButton(type: .system)

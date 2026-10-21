@@ -19,9 +19,10 @@
 //   10. page commands -> no page headers; the app's capsule runs window.__tubeShell.*
 //   11. Music history -> the full player is not a page of its own
 //   12. Music player gestures
-//   13. YouTube      -> captions off, mini player mode, drag the video down to minimize
+//   13. YouTube      -> captions off, mini player mode, fullscreen gestures, drag the video down to minimize
 //   14. YouTube      -> fullscreen follows the iPhone's rotation
 //   15. YouTube list -> tapped videos open in the app's player
+//   16. DeArrow      -> community titles instead of clickbait ones
 //
 // Frames other than the page itself (embeds, iframes) only get sections 1 and 2.
 //
@@ -1822,6 +1823,114 @@
     };
     document.addEventListener('touchend', release, { capture: true, passive: true });
     document.addEventListener('touchcancel', release, { capture: true, passive: true });
+
+    // Video gestures, like ReVanced: in fullscreen, drag up or down on the left half for
+    // brightness and on the right half for volume (holding for 2x is YouTube's own). The app changes those and sends the level back
+    // (gestureLevel), and the page draws the indicator: fullscreen covers the app's views.
+    addCss(
+      ':is(#movie_player, #player-container-id):fullscreen { touch-action: none !important; }\n' +
+        '.tubeshell-hud { position: absolute; top: 12%; left: 50%; z-index: 2147483647; pointer-events: none;' +
+        ' display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px; color: #fff;' +
+        ' font: 600 15px -apple-system, system-ui, sans-serif; background: rgba(28,28,30,0.55);' +
+        ' -webkit-backdrop-filter: blur(18px) saturate(1.6); backdrop-filter: blur(18px) saturate(1.6);' +
+        ' box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.35); opacity: 0; transform: translateX(-50%) scale(0.92);' +
+        ' transition: opacity 0.15s ease, transform 0.15s ease; }\n' +
+        '.tubeshell-hud.on { opacity: 1; transform: translateX(-50%) scale(1); }\n' +
+        '.tubeshell-hud svg { width: 18px; height: 18px; fill: #fff; }\n' +
+        '.tubeshell-hud i { display: block; width: 120px; height: 4px; border-radius: 2px; overflow: hidden;' +
+        ' background: rgba(255,255,255,0.28); }\n' +
+        '.tubeshell-hud i b { display: block; height: 100%; background: #fff; transform-origin: left; }\n'
+    );
+    const ICONS = {
+      brightness:
+        'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM11 1h2v3h-2zM11 20h2v3h-2zM1 11h3v2H1zM20 11h3v2h-3zM4.2 5.6l1.4-1.4 2.1 2.1-1.4 1.4zM16.3 17.7l1.4-1.4 2.1 2.1-1.4 1.4zM4.2 18.4l2.1-2.1 1.4 1.4-2.1 2.1zM16.3 6.3l2.1-2.1 1.4 1.4-2.1 2.1z',
+      volume: 'M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z',
+    };
+    const fullscreenNow = function () {
+      return document.fullscreenElement || document.webkitFullscreenElement;
+    };
+    let hud = null;
+    let hudFill = null;
+    let hudKind = '';
+    let hudTimer = 0;
+    const showHud = function (kind, level) {
+      const host = fullscreenNow() || document.getElementById('movie_player');
+      if (!host) return;
+      if (!hud) {
+        hud = document.createElement('div');
+        hud.className = 'tubeshell-hud';
+      }
+      if (hud.parentNode !== host) host.appendChild(hud);
+      if (hudKind !== kind) {
+        hudKind = kind;
+        hud.textContent = '';
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', ICONS[kind]);
+        svg.appendChild(path);
+        hud.appendChild(svg);
+        const bar = document.createElement('i');
+        hudFill = document.createElement('b');
+        bar.appendChild(hudFill);
+        hud.appendChild(bar);
+      }
+      hudFill.style.transform = 'scaleX(' + Math.max(0, Math.min(1, level)) + ')';
+      clearTimeout(hudTimer);
+      hud.classList.add('on');
+    };
+    const hideHud = function (delay) {
+      clearTimeout(hudTimer);
+      hudTimer = setTimeout(function () {
+        if (hud) hud.classList.remove('on');
+      }, delay);
+    };
+    window.__tubeShell.gestureLevel = function (kind, level) {
+      showHud(kind, level);
+    };
+
+    let gesture = null;
+    document.addEventListener(
+      'touchstart',
+      function (event) {
+        gesture = null;
+        const target = event.target instanceof Element ? event.target : null;
+        const full = fullscreenNow();
+        if (event.touches.length !== 1 || !full || !target || !full.contains(target)) return;
+        // Leave the seek bar and the buttons alone.
+        if (target.closest('button, a, [role="slider"], [class*="progress-bar"], [class*="ytp-chrome-bottom"]')) return;
+        const touch = event.touches[0];
+        gesture = { x: touch.clientX, y: touch.clientY, lastY: touch.clientY, mode: null };
+        gesture.side = touch.clientX < innerWidth / 2 ? 'brightness' : 'volume';
+      },
+      { capture: true, passive: true }
+    );
+    document.addEventListener(
+      'touchmove',
+      function (event) {
+        const g = gesture;
+        if (!g) return;
+        const touch = event.touches[0];
+        const dx = touch.clientX - g.x;
+        const dy = touch.clientY - g.y;
+        if (!g.mode) {
+          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+          if (Math.abs(dy) < 1.5 * Math.abs(dx)) return void (gesture = null);
+          g.mode = g.side;
+        }
+        // The whole height of the screen is about the full range.
+        const delta = (g.lastY - touch.clientY) / (innerHeight * 0.8);
+        g.lastY = touch.clientY;
+        if (delta) post({ type: 'adjust', kind: g.mode, delta });
+      },
+      { capture: true, passive: true }
+    );
+    const endGesture = function () {
+      if (gesture && gesture.mode) hideHud(600);
+      gesture = null;
+    };
+    document.addEventListener('touchend', endGesture, { capture: true, passive: true });
+    document.addEventListener('touchcancel', endGesture, { capture: true, passive: true });
   }
 
   // ---------------------------------------------------------------------------
@@ -1904,6 +2013,89 @@
       },
       true
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 16. DeArrow: community-written titles instead of clickbait ones
+  // ---------------------------------------------------------------------------
+  // Same service and privacy as SponsorBlock (section 9): only the first 4 hex characters
+  // of each video id's hash are sent, and one answer covers every video with that prefix.
+
+  if (isTopFrame && location.hostname === 'm.youtube.com') {
+    const answers = new Map(); // hash prefix -> promise of { videoID: branding }
+    const titles = new Map(); // video id -> community title, or '' when there is none
+
+    const lookUp = async function (id) {
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(id));
+      const prefix = Array.from(new Uint8Array(digest).slice(0, 2), function (b) {
+        return b.toString(16).padStart(2, '0');
+      }).join('');
+      if (!answers.has(prefix)) {
+        answers.set(
+          prefix,
+          fetch('https://sponsor.ajay.app/api/branding/' + prefix)
+            .then(function (response) {
+              return response.ok ? response.json() : {};
+            })
+            .catch(function () {
+              return {};
+            })
+        );
+      }
+      const entry = (await answers.get(prefix))[id];
+      // DeArrow's own rule: the top title unless voted down; "original" means the
+      // community kept the creator's title.
+      const best = entry && entry.titles && entry.titles.find(function (t) {
+        return t.locked || t.votes >= 0;
+      });
+      // A ">" before a word only tells DeArrow not to reformat it.
+      titles.set(id, best && !best.original ? best.title.replace(/(^|\s)>(?=\S)/g, '$1').trim() : '');
+    };
+
+    // Sets the title's text when there is a community one; the card can be reused for
+    // another video meanwhile, so it is checked again when the answer arrives.
+    const apply = function (heading, id) {
+      const text = heading.querySelector('span') || heading;
+      const title = titles.get(id);
+      if (title === undefined) {
+        if (heading.dataset.tubeshellAsked === id) return;
+        heading.dataset.tubeshellAsked = id;
+        lookUp(id)
+          .then(function () {
+            if (heading.dataset.tubeshellAsked === id) apply(heading, id);
+          })
+          .catch(function () {});
+        return;
+      }
+      if (title && text.textContent !== title) text.textContent = title;
+    };
+
+    const videoId = function (link) {
+      try {
+        return link ? new URL(link.href).searchParams.get('v') : null;
+      } catch (e) {
+        return null;
+      }
+    };
+
+    const sweep = function () {
+      for (const heading of document.querySelectorAll('ytm-media-item h3.media-item-headline')) {
+        const id = videoId(heading.closest('ytm-media-item').querySelector('a[href*="/watch?v="]'));
+        if (id) apply(heading, id);
+      }
+      const watched = location.pathname === '/watch' && new URLSearchParams(location.search).get('v');
+      const heading = watched && document.querySelector('h2.slim-video-information-title');
+      if (heading) apply(heading, watched);
+    };
+
+    // Lists fill in as you scroll: look again shortly after the page changes.
+    let pending = 0;
+    new MutationObserver(function () {
+      if (!pending) pending = setTimeout(function () {
+        pending = 0;
+        sweep();
+      }, 300);
+    }).observe(document.documentElement, { childList: true, subtree: true });
   }
 
 })();

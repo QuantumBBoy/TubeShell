@@ -37,11 +37,13 @@ En iPhone sin isla dinámica, la cápsula aparece como una barra arriba con los 
 
 - **Sin anuncios**: los mismos filtros que Brave y uBlock Origin. Si alguno se cuela, se silencia y se salta solo.
 - **SponsorBlock**: salta patrocinios, autopromoción y recordatorios de «suscríbete», con un aviso. Solo se envía un prefijo del hash del vídeo.
+- **Títulos sin clickbait** (DeArrow): en las listas y bajo el vídeo, el título que ha escrito la comunidad en lugar del original exagerado, cuando lo hay. Misma privacidad que SponsorBlock.
 - **Sin Shorts** en la portada, las búsquedas ni la barra inferior. Un enlace a un Short se abre como vídeo normal.
 - **Minirreproductor como en la app oficial**: los vídeos se abren en un reproductor encima de la lista, así la lista nunca se recarga. Arrastra el vídeo hacia abajo y sigue sonando en una ventanita que puedes mover a donde quieras. Tócala para volver, usa el botón central para pausar, o la × (o lánzala a la derecha) para cerrarla.
 - **Calidad hasta 4K60 HDR** sin Premium, con la opción *Máxima*. Por defecto 720p.
 - **Ahorro de datos**: con datos móviles o en Modo de datos reducidos, los vídeos van a 480p; con wifi, a la calidad elegida. Cambia solo, también a mitad de vídeo.
 - **Pantalla completa al girar** el iPhone; al ponerlo vertical vuelve, y el vídeo sigue sonando.
+- **Gestos en pantalla completa**: desliza arriba o abajo en la mitad izquierda para el brillo y en la derecha para el volumen. Mantener pulsado el vídeo lo pone a 2× (es de YouTube).
 - **Subtítulos** apagados por defecto, también en las vistas previas. Se activan en ⋯ y se recuerda.
 - **Compartir en el minuto exacto** con un enlace `youtu.be` limpio.
 - **Imagen en imagen** y **AirPlay**.
@@ -55,6 +57,7 @@ En iPhone sin isla dinámica, la cápsula aparece como una barra arriba con los 
 
 - **Audio con el iPhone bloqueado**, con carátula en la pantalla de bloqueo y botones de **siguiente / anterior** en lugar de los saltos de 10 segundos.
 - **Gestos en el reproductor**: desliza la carátula a los lados para cambiar de canción, tócala para ver la letra en grande y deslízala hacia abajo para minimizar.
+- **Letra sincronizada** (⋯ › Letra): la línea que suena se ilumina; toca una para saltar a ella. Viene de [LRCLIB](https://lrclib.net); solo se envían el título, el artista y la duración.
 - **Temporizador para dormir**: 15, 30, 45 o 60 minutos, o al acabar la canción.
 - **Sin avisos de Premium** ni botones de «Abrir aplicación».
 - Recibe el mejor audio gratuito de YouTube (Opus, formato 251). El de 256 kbps es solo para Premium.
@@ -65,7 +68,9 @@ En iPhone sin isla dinámica, la cápsula aparece como una barra arriba con los 
   <img src="docs/screenshots/buscador.png" width="220" alt="Buscador con búsquedas recientes">
 </p>
 
-- **Buscador propio**, a dos tercios de pantalla, con búsquedas recientes y micrófono.
+- **Buscador propio**, a dos tercios de pantalla, con sugerencias mientras escribes, búsquedas recientes y micrófono.
+- **Enlaces de fuera en Tube**: crea en la app Atajos un atajo que aparezca en la hoja de compartir con la acción «Abrir en Tube» y, desde WhatsApp o Safari, *Compartir › Abrir en Tube*. También vale escribir `tube://` delante de un enlace de YouTube.
+- **Liquid Glass** de iOS 26 en el minirreproductor y el buscador.
 - **Recuerda dónde estabas**: al abrir vuelve a la pestaña, la página y el segundo exacto del vídeo o la canción, en pausa.
 - **Volver atrás** con el gesto del borde izquierdo. Si no hay página anterior, vuelve a la última búsqueda o al inicio.
 - **Vibración suave** al tocar, **deslizar hacia abajo para recargar** y una pantalla **«Sin conexión»** que se recarga sola al volver internet.
@@ -136,12 +141,13 @@ Una app UIKit con dos `WKWebView` (más una tercera para el reproductor de YouTu
 TubeShell/
 ├── AppDelegate.swift          Sesión de audio (segundo plano)
 ├── SceneDelegate.swift        Ventana y accesos rápidos
-├── Shortcuts.swift            Atajos de Siri
+├── Shortcuts.swift            Atajos de Siri y enlaces de fuera (tube://)
 ├── AppTab.swift               Las dos pestañas, sus direcciones y las claves guardadas
 ├── MainViewController.swift   Cápsula, pestañas y temporizador
 ├── MainViewController+Player.swift  Reproductor de YouTube y minirreproductor
 ├── MainViewController+Menus.swift   Menús de la cápsula (⋯, velocidad, calidad, compartir)
-├── SearchViewController.swift Buscador propio, con voz
+├── SearchViewController.swift Buscador propio, con sugerencias y voz
+├── LyricsViewController.swift Letra sincronizada (LRCLIB)
 ├── WebTab.swift               Vista web configurada como Brave, enlaces, sin conexión
 ├── ContentRules.swift         Compila las reglas de red (en caché)
 ├── Info.plist                 Audio en segundo plano, accesos rápidos, micrófono
@@ -162,4 +168,4 @@ Signing.xcconfig               Lee tu equipo de firma de Local.xcconfig
 
 ## Licencia
 
-[MIT](LICENSE). Las técnicas de bloqueo se basan en las listas públicas de Brave y uBlock Origin; SponsorBlock usa la API pública de [sponsor.ajay.app](https://sponsor.ajay.app). Las capturas son del simulador de iOS, sin cuenta iniciada.
+[MIT](LICENSE). Las técnicas de bloqueo se basan en las listas públicas de Brave y uBlock Origin; SponsorBlock y DeArrow usan la API pública de [sponsor.ajay.app](https://sponsor.ajay.app), y la letra viene de [LRCLIB](https://lrclib.net). Las capturas son del simulador de iOS, sin cuenta iniciada.

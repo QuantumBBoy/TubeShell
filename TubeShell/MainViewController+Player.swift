@@ -1,3 +1,4 @@
+import AVFoundation
 import UIKit
 @preconcurrency import WebKit
 
@@ -126,9 +127,12 @@ extension MainViewController {
   }
 
   func setMiniPlayButton(paused: Bool) {
-    miniPlayButton.setImage(
-      UIImage(systemName: paused ? "play.fill" : "pause.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18)),
-      for: .normal)
+    let image = UIImage(systemName: paused ? "play.fill" : "pause.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18))
+    if miniPlayButton.configuration != nil {
+      miniPlayButton.configuration?.image = image
+    } else {
+      miniPlayButton.setImage(image, for: .normal)
+    }
     miniPlayButton.accessibilityLabel = paused ? L("Reanudar", "Resume") : L("Pausar", "Pause")
   }
 
@@ -206,6 +210,27 @@ extension MainViewController {
     UserDefaults.standard.removeObject(forKey: DefaultsKey.lastPlayerURL)
   }
 
+  // MARK: - Video gestures (Shields.js section 13)
+
+  /// A drag on the fullscreen video: left half brightness, right half volume. The new
+  /// level goes back to the page, which shows it (fullscreen covers the app's views).
+  func adjust(_ kind: String, by delta: Double, in webTab: WebTab) {
+    let level: Double
+    if kind == "brightness" {
+      let screen = view.window?.windowScene?.screen ?? UIScreen.main
+      screen.brightness = min(1, max(0, screen.brightness + delta))
+      level = screen.brightness
+    } else if kind == "volume", let slider = volumeView.subviews.compactMap({ $0 as? UISlider }).first {
+      // The slider can still be at 0 before it has synced: start from the real volume.
+      let current = slider.value > 0 ? slider.value : AVAudioSession.sharedInstance().outputVolume
+      slider.value = min(1, max(0, current + Float(delta)))
+      level = Double(slider.value)
+    } else {
+      return
+    }
+    webTab.run("gestureLevel('\(kind)', \(level))")
+  }
+
   // MARK: - Hiding the relayout when the player changes size
 
   /// The player's page lays itself out again when its web view goes between full screen
@@ -250,7 +275,9 @@ extension MainViewController {
       y: min(max(center.y - height / 2, minY), maxY),
       width: width, height: height)
     for case let button as UIButton in miniView.subviews where button !== miniPlayButton {
-      button.frame.origin = CGPoint(x: width - button.frame.width, y: 0)
+      // The glass close button sits a little in from the corner.
+      let inset: CGFloat = button.configuration != nil ? 5 : 0
+      button.frame.origin = CGPoint(x: width - button.frame.width - inset, y: inset)
     }
     miniPlayButton.center = CGPoint(x: width / 2, y: height / 2)
   }

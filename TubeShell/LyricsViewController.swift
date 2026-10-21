@@ -17,6 +17,7 @@ final class LyricsViewController: UITableViewController {
   private var song: String?  // "title|artist" of the lyrics shown
   private var timer: Timer?
   private var lastDrag = Date.distantPast
+  private var missedTicks = 0
   private let header = UILabel()
   private let status = UILabel()
 
@@ -30,7 +31,11 @@ final class LyricsViewController: UITableViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
     overrideUserInterfaceStyle = .dark
-    tableView.backgroundColor = .black
+    if #available(iOS 26.0, *) {
+      tableView.backgroundColor = .clear  // the sheet's own Liquid Glass
+    } else {
+      tableView.backgroundColor = .black
+    }
     tableView.separatorStyle = .none
     tableView.register(UITableViewCell.self, forCellReuseIdentifier: "line")
     tableView.contentInset.top = 20
@@ -68,20 +73,35 @@ final class LyricsViewController: UITableViewController {
 
   private static let stateScript = """
     (() => {
-      const p = document.getElementById('movie_player'), d = p && p.getVideoData && p.getVideoData();
+      const p = document.getElementById('movie_player'), v = document.querySelector('video');
+      const d = p && p.getVideoData ? p.getVideoData() : null;
       const m = navigator.mediaSession && navigator.mediaSession.metadata;
-      const title = (m && m.title) || (d && d.title), artist = (m && m.artist) || (d && d.author) || '';
-      return title && p && p.getCurrentTime ? [title, artist, p.getDuration() || 0, p.getCurrentTime()] : null;
+      const bar = document.querySelector('ytmusic-player-bar');
+      const barTitle = bar && bar.querySelector('.title'), byline = bar && bar.querySelector('.byline');
+      const title = (m && m.title) || (d && d.title) || (barTitle && barTitle.textContent.trim());
+      const artist = (m && m.artist) || (d && d.author) || (byline && byline.textContent.split('•')[0].trim()) || '';
+      const time = p && p.getCurrentTime ? p.getCurrentTime() : v ? v.currentTime : null;
+      const duration = (p && p.getDuration ? p.getDuration() : 0) || (v && v.duration) || 0;
+      return title && time != null ? [title, artist, duration, time] : null;
     })()
     """
 
   private func tick() {
     page.evaluateJavaScript(Self.stateScript) { [weak self] result, _ in
-      guard let self, let state = result as? [Any], state.count == 4,
+      guard let self else { return }
+      guard let state = result as? [Any], state.count == 4,
         let title = state[0] as? String, let artist = state[1] as? String,
         let duration = (state[2] as? NSNumber)?.doubleValue,
         let time = (state[3] as? NSNumber)?.doubleValue
-      else { return }
+      else {
+        // Nothing playing in Music (or its page is not ready yet).
+        self.missedTicks += 1
+        if self.song == nil, self.missedTicks == 8 {
+          self.status.text = L("Pon una canción en Music para ver su letra", "Play a song in Music to see its lyrics")
+        }
+        return
+      }
+      self.missedTicks = 0
       let key = title + "|" + artist
       if key != self.song {
         self.song = key
@@ -144,8 +164,15 @@ final class LyricsViewController: UITableViewController {
       URLQueryItem(name: "artist_name", value: artist),
     ]
     var results = await fetch(search.url)
+    // Several artists ("A, B & C") often match only the first one.
+    let firstArtist = artist.components(separatedBy: CharacterSet(charactersIn: ",&")).first?
+      .trimmingCharacters(in: .whitespaces) ?? artist
+    if results.isEmpty, firstArtist != artist {
+      search.queryItems = [URLQueryItem(name: "track_name", value: cleanTitle), URLQueryItem(name: "artist_name", value: firstArtist)]
+      results = await fetch(search.url)
+    }
     if results.isEmpty {
-      search.queryItems = [URLQueryItem(name: "q", value: "\(cleanTitle) \(artist)")]
+      search.queryItems = [URLQueryItem(name: "q", value: "\(cleanTitle) \(firstArtist)")]
       results = await fetch(search.url)
     }
     let candidates = results.compactMap { entry -> (lines: [Line], gap: Double)? in

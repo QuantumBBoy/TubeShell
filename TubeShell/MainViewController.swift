@@ -100,6 +100,13 @@ final class MainViewController: UIViewController {
   override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
   // The island capsule takes the clock's place.
   override var prefersStatusBarHidden: Bool { true }
+  override var prefersHomeIndicatorAutoHidden: Bool { videoFullscreen }
+
+  /// A YouTube video full size with the iPhone sideways: the page shows it fullscreen
+  /// (Shields.js fullscreen()) and the capsule steps aside.
+  var videoFullscreen: Bool {
+    view.bounds.width > view.bounds.height && selectedTab == .youtube && playerTab != nil && !playerMinimized
+  }
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
@@ -111,7 +118,13 @@ final class MainViewController: UIViewController {
     allWebTabs.forEach { $0.refreshTopOffset = $0.edgeToEdge ? top : 0 }
     islandCenterY?.constant = wrapsIsland ? top / 2 + 1 : top + 4 + Capsule.height / 2
     if miniTab != nil, miniDragStart == nil { layoutMini() }
-    let wanted = !wrapsIsland ? contentToBar! : pagesEdgeToEdge == true ? contentToTop! : contentToSafeArea!
+    let fullscreen = videoFullscreen
+    if islandBar.isHidden != fullscreen {
+      islandBar.isHidden = fullscreen
+      setNeedsUpdateOfHomeIndicatorAutoHidden()
+    }
+    let wanted =
+      fullscreen || (wrapsIsland && pagesEdgeToEdge == true) ? contentToTop! : wrapsIsland ? contentToSafeArea! : contentToBar!
     if !wanted.isActive {
       [contentToBar!, contentToTop!, contentToSafeArea!].forEach { $0.isActive = false }
       wanted.isActive = true
@@ -276,6 +289,10 @@ final class MainViewController: UIViewController {
   var miniCenter: CGPoint?
   /// Centre when a drag began; while dragging, layout passes leave the frame alone.
   var miniDragStart: CGPoint?
+  /// Thrown to the right edge: tucked away with only a tab showing, still playing.
+  var miniStashed = false
+  /// The tab of a tucked-away mini player.
+  let miniStashTab = UIView()
 
   // MARK: - Sleep timer
 
@@ -445,6 +462,17 @@ final class MainViewController: UIViewController {
     ])
   }
 
+  /// iOS 26+: a dark Liquid Glass capsule to put behind a control; nil before iOS 26,
+  /// where the controls keep their plain dark background.
+  static func glass() -> UIView? {
+    guard #available(iOS 26.0, *) else { return nil }
+    let glass = UIVisualEffectView(effect: UIGlassEffect())
+    glass.cornerConfiguration = .capsule()
+    glass.isUserInteractionEnabled = false
+    glass.overrideUserInterfaceStyle = .dark
+    return glass
+  }
+
   private func layoutViews() {
     contentView.translatesAutoresizingMaskIntoConstraints = false
     contentView.backgroundColor = .black
@@ -489,18 +517,43 @@ final class MainViewController: UIViewController {
     miniPlayButton.addTarget(self, action: #selector(toggleMiniPlayback), for: .touchUpInside)
     setMiniPlayButton(paused: false)
     miniView.addSubview(miniPlayButton)
+    miniStashTab.isHidden = true
+    miniStashTab.isUserInteractionEnabled = false
+    if let glass = Self.glass() {
+      miniStashTab.addSubview(glass)
+      glass.frame = miniStashTab.bounds
+      glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    } else {
+      miniStashTab.backgroundColor = UIColor(white: 0, alpha: 0.55)
+    }
+    let chevron = UIImageView(
+      image: UIImage(systemName: "chevron.compact.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)))
+    chevron.tintColor = .white
+    chevron.contentMode = .center
+    chevron.frame = miniStashTab.bounds
+    chevron.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    miniStashTab.addSubview(chevron)
+    miniView.addSubview(miniStashTab)
     miniView.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(miniPanned(_:))))
     view.addSubview(miniView)
 
     islandBar.translatesAutoresizingMaskIntoConstraints = false
-    islandBar.backgroundColor = .black
-    islandBar.layer.cornerRadius = Capsule.height / 2
-    islandBar.layer.cornerCurve = .continuous
+    islandBar.overrideUserInterfaceStyle = .dark
+    if let glass = Self.glass() {
+      // iOS 26: Liquid Glass, with the page showing through on both sides of the island.
+      glass.frame = islandBar.bounds
+      glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+      islandBar.addSubview(glass)
+    } else {
+      islandBar.backgroundColor = .black
+      islandBar.layer.cornerRadius = Capsule.height / 2
+      islandBar.layer.cornerCurve = .continuous
+    }
     view.addSubview(islandBar)
 
     tabSwitch.translatesAutoresizingMaskIntoConstraints = false
     tabSwitch.selectedSegmentTintColor = UIColor(white: 1, alpha: 0.25)
-    tabSwitch.backgroundColor = .black
+    tabSwitch.backgroundColor = islandBar.backgroundColor
     // The segmented control only shows the selected tab; a transparent button over each
     // half handles taps, so tapping the tab you are on can take you to its home page
     // (the control itself reports nothing when its selected segment is tapped again).

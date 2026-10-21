@@ -13,6 +13,8 @@ private enum MiniPlayer {
   static let maxWidth: CGFloat = 240
   /// Room kept above YouTube's bottom bar (Home / You), pt.
   static let bottomBarClearance: CGFloat = 76
+  /// What shows of a tucked-away mini player, pt.
+  static let stashTabWidth: CGFloat = 30
 }
 
 extension MainViewController {
@@ -30,6 +32,7 @@ extension MainViewController {
   /// unless media plays in them: WebKit pauses media in a hidden web view, so a playing
   /// one stays put, just covered. Called whenever what is on top changes.
   func updateWebViewVisibility() {
+    view.setNeedsLayout()  // the capsule hides for a fullscreen video (viewDidLayoutSubviews)
     let playerOnTop = playerTab != nil && !playerMinimized
     for (tab, webTab) in webTabs {
       let covered = tab != selectedTab || (tab == .youtube && playerOnTop)
@@ -151,18 +154,30 @@ extension MainViewController {
       miniDragStart = nil
       let velocity = pan.velocity(in: view)
       let frame = miniView.frame
-      let pastEdge = frame.maxX - view.bounds.width
-      if pastEdge > frame.width * 0.35 || (pastEdge > 0 && velocity.x > 900) {
+      let pastLeft = -frame.minX
+      let pastRight = frame.maxX - view.bounds.width
+      miniCenter = CGPoint(x: miniStashed ? view.bounds.width : miniView.center.x, y: miniView.center.y)
+      if miniStashed {
+        // Pulled out to the left: back in view; otherwise it tucks away again.
+        if move.x < -30 || velocity.x < -300 { setMiniStashed(false) }
+      } else if pastLeft > frame.width * 0.35 || (pastLeft > 0 && velocity.x < -900) {
+        // Thrown off to the left: closed.
+        tick()
         UIView.animate(withDuration: 0.2) {
-          self.miniView.frame.origin.x = self.view.bounds.width
+          self.miniView.frame.origin.x = -frame.width
           self.miniView.alpha = 0
         } completion: { _ in
           self.closeMini()
           self.miniView.alpha = 1
         }
         return
+      } else if pastRight > frame.width * 0.35 || (pastRight > 0 && velocity.x > 900) {
+        // Thrown to the right: tucked away at the edge, still playing.
+        tick()
+        setMiniStashed(true)
+      } else {
+        miniCenter = miniView.center
       }
-      miniCenter = miniView.center
       UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4) {
         self.layoutMini()
       }
@@ -173,6 +188,12 @@ extension MainViewController {
 
   @objc func restoreMini() {
     guard playerMinimized else { return }
+    // Tucked away: tapping the tab brings the mini player back first.
+    if miniStashed {
+      tick()
+      setMiniStashed(false)
+      return
+    }
     tick()
     expandPlayer()
     select(.youtube)
@@ -181,6 +202,7 @@ extension MainViewController {
   func expandPlayer() {
     guard let player = playerTab, playerMinimized else { return }
     playerMinimized = false
+    setMiniStashed(false)
     miniView.isHidden = true
     let cover = relayoutCover(for: player.webView)
     player.webView.removeFromSuperview()
@@ -194,6 +216,15 @@ extension MainViewController {
     if view.bounds.width > view.bounds.height { player.run("fullscreen(true)") }
   }
 
+  func setMiniStashed(_ stashed: Bool) {
+    miniStashed = stashed
+    miniStashTab.isHidden = !stashed
+    miniPlayButton.isHidden = stashed
+    UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0.4) {
+      self.layoutMini()
+    }
+  }
+
   @objc func closeMini() {
     closePlayer()
   }
@@ -205,6 +236,7 @@ extension MainViewController {
     player.webView.removeFromSuperview()
     playerTab = nil
     playerMinimized = false
+    setMiniStashed(false)
     miniView.isHidden = true
     updateWebViewVisibility()
     UserDefaults.standard.removeObject(forKey: DefaultsKey.lastPlayerURL)
@@ -274,6 +306,9 @@ extension MainViewController {
       x: min(max(center.x - width / 2, 12), view.bounds.width - width - 12),
       y: min(max(center.y - height / 2, minY), maxY),
       width: width, height: height)
+    // Tucked away: only the tab at its left edge stays on screen.
+    if miniStashed { miniView.frame.origin.x = view.bounds.width - MiniPlayer.stashTabWidth }
+    miniStashTab.frame = CGRect(x: 0, y: 0, width: MiniPlayer.stashTabWidth, height: height)
     for case let button as UIButton in miniView.subviews where button !== miniPlayButton {
       // The glass close button sits a little in from the corner.
       let inset: CGFloat = button.configuration != nil ? 5 : 0

@@ -387,7 +387,8 @@ final class WebTab: NSObject {
     detail.textColor = .secondaryLabel
     detail.numberOfLines = 0
     detail.textAlignment = .center
-    var config = UIButton.Configuration.filled()
+    var config: UIButton.Configuration
+    if #available(iOS 26.0, *) { config = .prominentGlass() } else { config = .filled() }
     config.title = L("Reintentar", "Try again")
     config.cornerStyle = .capsule
     config.baseBackgroundColor = .white

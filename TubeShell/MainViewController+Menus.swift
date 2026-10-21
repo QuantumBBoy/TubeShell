@@ -117,7 +117,8 @@ extension MainViewController {
     guard presentedViewController == nil else { return }
     let lyrics = LyricsViewController(page: music.webView)
     if let sheet = lyrics.sheetPresentationController {
-      sheet.detents = [.large()]
+      // Half height shows the sheet's glass with the player behind; drag up for more.
+      sheet.detents = [.medium(), .large()]
       sheet.prefersGrabberVisible = true
     }
     present(lyrics, animated: true)

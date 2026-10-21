@@ -1121,25 +1121,24 @@
           }, 800);
         }
       },
-      // Rotating the iPhone on a watch page: YouTube's own fullscreen player in
-      // landscape, back to the page in portrait.
+      // Rotating the iPhone on a watch page: the app's own fullscreen in landscape (the
+      // player fills the page and the app hides its capsule), back to the page in
+      // portrait. Not WebKit's fullscreen: that one closes on any vertical swipe, which
+      // the brightness and volume gestures need (section 13).
       fullscreen: function (on) {
         const current = document.fullscreenElement || document.webkitFullscreenElement;
         if (!on) {
           const exit = document.exitFullscreen || document.webkitExitFullscreen;
           if (current && exit) exit.call(document);
+          if (!root.classList.contains('tubeshell-full')) return;
+          root.classList.remove('tubeshell-full');
+          window.dispatchEvent(new Event('resize'));
           return;
         }
-        const video = document.querySelector('video');
-        if (current || location.pathname !== '/watch' || !video) return;
-        const box = document.getElementById('movie_player') || document.getElementById('player-container-id');
-        const request = box && (box.requestFullscreen || box.webkitRequestFullscreen);
-        const fallback = function () {
-          if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
-        };
-        if (!request) return fallback();
-        const result = request.call(box);
-        if (result && result.catch) result.catch(fallback);
+        if (current || location.pathname !== '/watch' || !document.querySelector('video')) return;
+        root.classList.add('tubeshell-full');
+        window.scrollTo(0, 0);
+        window.dispatchEvent(new Event('resize'));
       },
       // Search from the app's own search screen. YouTube: open the results page.
       // Music: type into its own search box (no reload, so the music keeps playing). Music
@@ -1743,13 +1742,16 @@
     const root = document.documentElement;
     if (pref('tubeShellCaptions', 'off') === 'on') root.classList.add('tubeshell-captions');
 
-    // Mini player mode (set by the app): the video fills the small floating page.
+    // Mini player mode and the app's fullscreen (set by the app): the video fills the
+    // page, which is the small floating window or the whole screen.
     const miniCss =
-      'html.tubeshell-mini #player-container-id { position: fixed !important; top: 0 !important; left: 0 !important;' +
+      'html:is(.tubeshell-mini, .tubeshell-full) #player-container-id { position: fixed !important; top: 0 !important; left: 0 !important;' +
       ' width: 100vw !important; height: 100vh !important; z-index: 2147483647 !important; transform: none !important;' +
       ' opacity: 1 !important; box-shadow: none !important; background: #000 !important; padding: 0 !important; }\n' +
-      'html.tubeshell-mini :is(#player-container-id #player, #movie_player, video.html5-main-video)' +
-      ' { width: 100vw !important; height: 100vh !important; left: 0 !important; top: 0 !important; object-fit: contain !important; }\n';
+      'html:is(.tubeshell-mini, .tubeshell-full) :is(#player-container-id #player, #movie_player, video.html5-main-video)' +
+      ' { width: 100vw !important; height: 100vh !important; left: 0 !important; top: 0 !important; object-fit: contain !important; }\n' +
+      'html.tubeshell-full, html.tubeshell-full body { overflow: hidden !important; }\n' +
+      'html.tubeshell-full #player-container-id { touch-action: none !important; }\n';
     addCss(miniCss);
 
     // Captions: hidden everywhere (feed previews included) unless turned on from the
@@ -1775,7 +1777,8 @@
     // player, otherwise it springs back. Vertical drags on the video are ours (no scrolling).
     addCss('#player-container-id { touch-action: pan-x !important; }');
     const playerBox = function (target) {
-      return location.pathname === '/watch' && !document.fullscreenElement && target instanceof Element
+      return location.pathname === '/watch' && !document.fullscreenElement && !root.classList.contains('tubeshell-full') &&
+        target instanceof Element
         ? target.closest('#player-container-id')
         : null;
     };
@@ -1824,12 +1827,11 @@
     document.addEventListener('touchend', release, { capture: true, passive: true });
     document.addEventListener('touchcancel', release, { capture: true, passive: true });
 
-    // Video gestures, like ReVanced: in fullscreen, drag up or down on the left half for
+    // Video gestures, like ReVanced: in the app's fullscreen, drag up or down on the left half for
     // brightness and on the right half for volume (holding for 2x is YouTube's own). The app changes those and sends the level back
     // (gestureLevel), and the page draws the indicator: fullscreen covers the app's views.
     addCss(
-      ':is(#movie_player, #player-container-id):fullscreen { touch-action: none !important; }\n' +
-        '.tubeshell-hud { position: absolute; top: 12%; left: 50%; z-index: 2147483647; pointer-events: none;' +
+      '.tubeshell-hud { position: absolute; top: 12%; left: 50%; z-index: 2147483647; pointer-events: none;' +
         ' display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 999px; color: #fff;' +
         ' font: 600 15px -apple-system, system-ui, sans-serif; background: rgba(28,28,30,0.55);' +
         ' -webkit-backdrop-filter: blur(18px) saturate(1.6); backdrop-filter: blur(18px) saturate(1.6);' +
@@ -1847,6 +1849,7 @@
       volume: 'M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4zM14 3.2v2.1a7 7 0 0 1 0 13.4v2.1a9 9 0 0 0 0-17.6z',
     };
     const fullscreenNow = function () {
+      if (root.classList.contains('tubeshell-full')) return document.getElementById('player-container-id');
       return document.fullscreenElement || document.webkitFullscreenElement;
     };
     let hud = null;
@@ -1898,7 +1901,7 @@
         const full = fullscreenNow();
         if (event.touches.length !== 1 || !full || !target || !full.contains(target)) return;
         // Leave the seek bar and the buttons alone.
-        if (target.closest('button, a, [role="slider"], [class*="progress-bar"], [class*="ytp-chrome-bottom"]')) return;
+        if (target.closest('button, a, [role="slider"], [class*="progress-bar"]')) return;
         const touch = event.touches[0];
         gesture = { x: touch.clientX, y: touch.clientY, lastY: touch.clientY, mode: null };
         gesture.side = touch.clientX < innerWidth / 2 ? 'brightness' : 'volume';

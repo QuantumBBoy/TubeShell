@@ -45,9 +45,10 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
     searchBar.showsBookmarkButton = true
     searchBar.setImage(UIImage(systemName: "mic.fill"), for: .bookmark, state: .normal)
     searchBar.returnKeyType = .search
+    // The bar's own cancel button: it always sits on the bar's line (a separate bar button
+    // item did not on iOS 26).
+    searchBar.showsCancelButton = true
     navigationItem.titleView = searchBar
-    navigationItem.rightBarButtonItem = UIBarButtonItem(
-      systemItem: .cancel, primaryAction: UIAction { [weak self] _ in self?.close() })
     tableView.register(UITableViewCell.self, forCellReuseIdentifier: "recent")
     tableView.keyboardDismissMode = .onDrag
     if #available(iOS 26.0, *) {
@@ -86,6 +87,10 @@ final class SearchViewController: UITableViewController, UISearchBarDelegate {
   private func close() {
     stopListening()
     dismiss(animated: true)
+  }
+
+  func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+    close()
   }
 
   func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {

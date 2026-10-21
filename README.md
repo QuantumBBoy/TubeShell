@@ -2,7 +2,7 @@
 
 **YouTube y YouTube Music en el iPhone, sin anuncios, en una sola app.**
 
-Tube abre YouTube y YouTube Music a pantalla completa, con el bloqueo de anuncios de Brave Shields, audio en segundo plano y una cápsula junto a la isla dinámica que hace de barra de navegación. No es una app de la App Store: la compilas e instalas tú en tu iPhone con tu Apple ID, gratis.
+Tube abre YouTube y YouTube Music a pantalla completa, con el bloqueo de anuncios de Brave Shields, audio en segundo plano y una cápsula alrededor de la isla dinámica que hace de barra de navegación. No es una app de la App Store: la compilas e instalas tú en tu iPhone con tu Apple ID, gratis.
 
 <p align="center">
   <img src="docs/screenshots/youtube-lista.png" width="220" alt="Resultados de búsqueda en YouTube">
@@ -18,14 +18,14 @@ Tube abre YouTube y YouTube Music a pantalla completa, con el bloqueo de anuncio
   <img src="docs/screenshots/capsula.png" width="520" alt="Cápsula de la isla dinámica">
 </p>
 
-En lugar de las cabeceras de YouTube y Music, una cápsula negra amplía la isla dinámica a los dos lados:
+En lugar de las cabeceras de YouTube y Music hay una cápsula alrededor de la isla dinámica (de Liquid Glass en iOS 26):
 
-- **▶︎ ♪** cambia de pestaña. Las dos siguen vivas, así que cambiar no recarga ni corta la música. Tocar la pestaña en la que estás vuelve a su inicio; mantener ♪ reanuda la última canción.
+- **▶︎ ♪** cambia de pestaña sin recargar ni cortar la música. Tocar la pestaña en la que estás vuelve a su inicio. Mantener ♪ reanuda la última canción.
 - **🔍** abre el buscador. Mantenerlo pulsado busca por voz.
-- **☾** (solo en Music) es el temporizador para dormir, con la cuenta atrás en la propia cápsula.
-- **⋯** abre el menú: compartir, subtítulos, velocidad, calidad, cuenta, AirPlay y recargar.
+- **☾** (solo en Music) es el temporizador para dormir, con la cuenta atrás en la cápsula.
+- **⋯** abre el menú: compartir, subtítulos, velocidad, calidad y ahorro de datos, letra, cuenta, AirPlay y recargar. En Music también Inicio, Explorar, Biblioteca e Historial.
 
-En iPhone sin isla dinámica, la cápsula aparece como una barra arriba con los mismos botones.
+En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba con los mismos botones.
 
 ## YouTube
 
@@ -36,17 +36,21 @@ En iPhone sin isla dinámica, la cápsula aparece como una barra arriba con los 
 </p>
 
 - **Sin anuncios**: los mismos filtros que Brave y uBlock Origin. Si alguno se cuela, se silencia y se salta solo.
-- **SponsorBlock**: salta patrocinios, autopromoción y recordatorios de «suscríbete», con un aviso. Solo se envía un prefijo del hash del vídeo.
-- **Títulos sin clickbait** (DeArrow): en las listas y bajo el vídeo, el título que ha escrito la comunidad en lugar del original exagerado, cuando lo hay. Misma privacidad que SponsorBlock.
+- **SponsorBlock**: salta patrocinios, autopromoción y recordatorios de «suscríbete», con un aviso.
+- **Títulos sin clickbait** (DeArrow): en las listas y bajo el vídeo, el título escrito por la comunidad cuando lo hay.
 - **Sin Shorts** en la portada, las búsquedas ni la barra inferior. Un enlace a un Short se abre como vídeo normal.
-- **Minirreproductor como en la app oficial**: los vídeos se abren en un reproductor encima de la lista, así la lista nunca se recarga. Arrastra el vídeo hacia abajo y sigue sonando en una ventanita que puedes mover a donde quieras. Tócala para volver, usa el botón central para pausar, o la × (o lánzala a la derecha) para cerrarla.
-- **Calidad hasta 4K60 HDR** sin Premium, con la opción *Máxima*. Por defecto 720p.
-- **Ahorro de datos**: con datos móviles o en Modo de datos reducidos, los vídeos van a 480p; con wifi, a la calidad elegida. Cambia solo, también a mitad de vídeo.
-- **Pantalla completa al girar** el iPhone; al ponerlo vertical vuelve, y el vídeo sigue sonando.
-- **Gestos en pantalla completa**: desliza arriba o abajo en la mitad izquierda para el brillo y en la derecha para el volumen. Mantener pulsado el vídeo lo pone a 2× (es de YouTube).
+- **Los vídeos se abren encima de la lista**, así la lista nunca se recarga.
+- **Minirreproductor**: arrastra el vídeo hacia abajo y sigue sonando en una ventanita que puedes mover.
+  - Tócala para volver al vídeo; el botón del centro pausa.
+  - Lánzala a la **izquierda** (o pulsa ×) para cerrarla.
+  - Lánzala a la **derecha** y se esconde en el borde con una pestaña ‹, sin dejar de sonar. Toca la pestaña para sacarla.
+- **Pantalla completa al girar** el iPhone (también si abres un vídeo ya en horizontal). Al ponerlo vertical vuelve y el vídeo sigue sonando.
+- **Gestos en pantalla completa**: desliza arriba o abajo en la mitad izquierda para el **brillo** y en la derecha para el **volumen**. Mantener pulsado el vídeo lo pone a 2× (es de YouTube).
+- **Calidad hasta 4K60 HDR** sin Premium (opción *Máxima*). Por defecto 720p.
+- **Ahorro de datos**: con datos móviles o en Modo de datos reducidos, 480p; con wifi, la calidad elegida. Cambia solo, también a mitad de vídeo.
 - **Subtítulos** apagados por defecto, también en las vistas previas. Se activan en ⋯ y se recuerda.
 - **Compartir en el minuto exacto** con un enlace `youtu.be` limpio.
-- **Imagen en imagen** y **AirPlay**.
+- **Velocidad**, **imagen en imagen** y **AirPlay**.
 
 ## YouTube Music
 
@@ -55,12 +59,12 @@ En iPhone sin isla dinámica, la cápsula aparece como una barra arriba con los 
   <img src="docs/screenshots/temporizador.png" width="220" alt="Temporizador para dormir">
 </p>
 
-- **Audio con el iPhone bloqueado**, con carátula en la pantalla de bloqueo y botones de **siguiente / anterior** en lugar de los saltos de 10 segundos.
-- **Gestos en el reproductor**: desliza la carátula a los lados para cambiar de canción, tócala para ver la letra y deslízala hacia abajo para minimizar.
-- **Letra sincronizada**: toca la carátula de la canción (o ⋯ › Letra). La línea que suena se ilumina; toca una para saltar a ella. Si no hay letra sincronizada, un botón abre la de YouTube Music. Viene de [LRCLIB](https://lrclib.net); solo se envían el título y el artista.
+- **Audio con el iPhone bloqueado**, con carátula y botones de **siguiente / anterior** en la pantalla de bloqueo (en lugar de los saltos de 10 segundos).
+- **Gestos en la carátula**: deslízala a los lados para cambiar de canción, tócala para ver la letra y deslízala hacia abajo para minimizar. Al abrir el reproductor, unos avisos breves te los recuerdan.
+- **Letra sincronizada**: la línea que suena se ilumina; toca una para saltar a ella. Si no hay letra sincronizada, un botón abre la de YouTube Music.
 - **Temporizador para dormir**: 15, 30, 45 o 60 minutos, o al acabar la canción.
-- **Sin avisos de Premium** ni botones de «Abrir aplicación».
-- Recibe el mejor audio gratuito de YouTube (Opus, formato 251). El de 256 kbps es solo para Premium.
+- **Sin avisos de Premium** ni de «Abrir en la aplicación».
+- El mejor audio gratuito de YouTube (Opus, formato 251). El de 256 kbps es solo para Premium.
 
 ## Más cómodo
 
@@ -68,15 +72,28 @@ En iPhone sin isla dinámica, la cápsula aparece como una barra arriba con los 
   <img src="docs/screenshots/buscador.png" width="220" alt="Buscador con búsquedas recientes">
 </p>
 
-- **Buscador propio**, a dos tercios de pantalla, con sugerencias mientras escribes, búsquedas recientes y micrófono.
-- **Enlaces de fuera en Tube**: crea en la app Atajos un atajo que aparezca en la hoja de compartir con la acción «Abrir en Tube» y, desde WhatsApp o Safari, *Compartir › Abrir en Tube*. También vale escribir `tube://` delante de un enlace de YouTube.
-- **Liquid Glass** de iOS 26 en el minirreproductor y el buscador.
+- **Buscador propio**: sugerencias mientras escribes, búsquedas recientes (desliza para borrar una) y micrófono.
 - **Recuerda dónde estabas**: al abrir vuelve a la pestaña, la página y el segundo exacto del vídeo o la canción, en pausa.
 - **Volver atrás** con el gesto del borde izquierdo. Si no hay página anterior, vuelve a la última búsqueda o al inicio.
-- **Vibración suave** al tocar, **deslizar hacia abajo para recargar** y una pantalla **«Sin conexión»** que se recarga sola al volver internet.
-- **Siri y Atajos**: «Oye Siri, pon mi música en Tube», «Abre Music en Tube», «Temporizador de Tube».
+- **Liquid Glass** de iOS 26 en la cápsula, el minirreproductor, el buscador, la letra y el indicador de brillo y volumen.
+- **Vibración suave** al tocar, **deslizar hacia abajo para recargar** y una pantalla **«Sin conexión»** que se recarga sola.
+- **Siri y Atajos**: «Pon mi música en Tube», «Abre Music en Tube», «Abre YouTube en Tube», «Temporizador de Tube».
 - **Accesos rápidos**: mantén pulsado el icono para abrir Music o YouTube.
+- **Enlaces de fuera**: iOS no deja que otra app abra directamente los enlaces de YouTube. Dos atajos:
+  - En la app Atajos, crea uno con la acción «Abrir en Tube» y activa «Mostrar en hoja de compartir». Luego, en WhatsApp o Safari: *Compartir › Abrir en Tube*.
+  - O escribe `tube://` delante del enlace en Safari.
 - Inicias sesión en Google una vez y vale para las dos pestañas.
+- Textos de la app en español o inglés, según el idioma del iPhone.
+
+## Privacidad: a qué se conecta
+
+Aparte de YouTube y YouTube Music, sin cuentas ni datos personales:
+
+| Servicio | Para qué | Qué se envía |
+|---|---|---|
+| [sponsor.ajay.app](https://sponsor.ajay.app) | SponsorBlock y títulos sin clickbait | Los 4 primeros caracteres de una huella del vídeo; no sabe qué vídeo ves |
+| [lrclib.net](https://lrclib.net) | Letra sincronizada | Título y artista de la canción, al abrir la letra |
+| suggestqueries.google.com | Sugerencias del buscador | Lo que escribes en el buscador |
 
 ## Instalación
 

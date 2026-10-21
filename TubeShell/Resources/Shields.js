@@ -1132,7 +1132,12 @@
           if (current && exit) exit.call(document);
           if (!root.classList.contains('tubeshell-full')) return;
           root.classList.remove('tubeshell-full');
-          window.dispatchEvent(new Event('resize'));
+          // Measured again once the page has its portrait size (the seek bar included).
+          [0, 300, 800].forEach(function (delay) {
+            setTimeout(function () {
+              window.dispatchEvent(new Event('resize'));
+            }, delay);
+          });
           return;
         }
         if (current || location.pathname !== '/watch' || !document.querySelector('video')) return;

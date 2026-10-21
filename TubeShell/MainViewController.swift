@@ -70,7 +70,13 @@ final class MainViewController: UIViewController {
   override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
     super.viewWillTransition(to: size, with: coordinator)
     guard selectedTab == .youtube, let player = playerTab, !playerMinimized else { return }
-    player.run("fullscreen(\(size.width > size.height))")
+    if size.width > size.height {
+      player.run("fullscreen(true)")
+    } else {
+      // Left once the iPhone is upright: measured mid-turn, YouTube kept the landscape
+      // width for its seek bar and seeks landed left of the finger.
+      coordinator.animate(alongsideTransition: nil) { _ in player.run("fullscreen(false)") }
+    }
   }
 
   /// Every web view: the tabs' and, when open, the YouTube player.

@@ -113,7 +113,8 @@ extension MainViewController {
     return UIMenu(children: sections)
   }
 
-  private func presentLyrics(from music: WebTab) {
+  /// Synced lyrics over Music: from ⋯ › Letra, or tapping the song's artwork.
+  func presentLyrics(from music: WebTab) {
     guard presentedViewController == nil else { return }
     let lyrics = LyricsViewController(page: music.webView)
     if let sheet = lyrics.sheetPresentationController {

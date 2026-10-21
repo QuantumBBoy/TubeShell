@@ -491,6 +491,8 @@ final class WebTab: NSObject {
       owner?.openVideo(url)
     } else if type == "musicPlayer", let open = body["open"] as? Bool {
       setMusicPlayerOpen(open)
+    } else if type == "lyrics" {
+      owner?.presentLyrics(from: self)
     } else if type == "minimize" {
       owner?.minimize(self)
     } else if type == "adjust", let kind = body["kind"] as? String, let delta = body["delta"] as? Double {

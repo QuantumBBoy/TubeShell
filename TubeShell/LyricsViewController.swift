@@ -20,6 +20,8 @@ final class LyricsViewController: UITableViewController {
   private var missedTicks = 0
   private let header = UILabel()
   private let status = UILabel()
+  /// When there are no synced lyrics: Music's own (plain) lyrics instead.
+  private let musicLyricsButton = UIButton(type: .system)
 
   init(page: WKWebView) {
     self.page = page
@@ -53,6 +55,25 @@ final class LyricsViewController: UITableViewController {
     status.numberOfLines = 0
     status.text = L("Buscando la letra…", "Finding the lyrics…")
     tableView.backgroundView = status
+
+    var config: UIButton.Configuration
+    if #available(iOS 26.0, *) { config = .glass() } else { config = .gray() }
+    config.title = L("Ver la letra de YouTube Music", "Show YouTube Music's lyrics")
+    musicLyricsButton.configuration = config
+    musicLyricsButton.isHidden = true
+    musicLyricsButton.addAction(
+      UIAction { [weak self] _ in
+        guard let self else { return }
+        self.page.evaluateJavaScript("window.__tubeShell && window.__tubeShell.musicLyrics()")
+        self.dismiss(animated: true)
+      }, for: .touchUpInside)
+    musicLyricsButton.translatesAutoresizingMaskIntoConstraints = false
+    status.addSubview(musicLyricsButton)
+    status.isUserInteractionEnabled = true
+    NSLayoutConstraint.activate([
+      musicLyricsButton.centerXAnchor.constraint(equalTo: status.centerXAnchor),
+      musicLyricsButton.topAnchor.constraint(equalTo: status.centerYAnchor, constant: 30),
+    ])
   }
 
   override func viewWillAppear(_ animated: Bool) {
@@ -140,6 +161,7 @@ final class LyricsViewController: UITableViewController {
     current = nil
     tableView.reloadData()
     status.text = L("Buscando la letra…", "Finding the lyrics…")
+    musicLyricsButton.isHidden = true
     tableView.backgroundView = status
     let key = song
     Task { [weak self] in
@@ -148,7 +170,8 @@ final class LyricsViewController: UITableViewController {
       self.lines = found
       self.current = nil
       self.tableView.backgroundView = found.isEmpty ? self.status : nil
-      self.status.text = L("No hay letra para esta canción", "No lyrics for this song")
+      self.status.text = L("No hay letra sincronizada para esta canción", "No synced lyrics for this song")
+      self.musicLyricsButton.isHidden = !found.isEmpty
       self.tableView.reloadData()
     }
   }

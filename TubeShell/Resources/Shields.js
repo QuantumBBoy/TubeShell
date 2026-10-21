@@ -1237,6 +1237,12 @@
           }, delay);
         });
       },
+      // Music's own lyrics: the second tab of the player page (labels change with the
+      // language). The app's lyrics sheet offers it when it has no synced lyrics.
+      musicLyrics: function () {
+        const tab = document.querySelectorAll('ytmusic-player-page tp-yt-paper-tab.tab-header')[1];
+        if (tab) tab.click();
+      },
       // Back, called by the app only when the page has nothing behind it (reopened straight
       // on this page): the last search on YouTube, home otherwise. On Music an open full
       // player is first folded down into the mini player, like its ⌄ button.
@@ -1657,9 +1663,8 @@
           if (button) button.click();
         }
       } else if (event.type === 'touchend' && elapsed < 500 && Math.abs(dx) < 10 && Math.abs(dy) < 10) {
-        // Second tab of the player page is the lyrics (labels change with the language).
-        const tab = document.querySelectorAll('ytmusic-player-page tp-yt-paper-tab.tab-header')[1];
-        if (tab) tab.click();
+        // The app's synced lyrics; without the app, Music's own lyrics tab.
+        if (!post({ type: 'lyrics' })) window.__tubeShell.musicLyrics();
       }
     };
     document.addEventListener('touchend', finish, { capture: true, passive: true });

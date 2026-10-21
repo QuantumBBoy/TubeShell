@@ -1780,10 +1780,18 @@
     // Drag the watch-page video down to minimize it, like the YouTube app. The player
     // follows the finger; past a third of its height the app shrinks it into the mini
     // player, otherwise it springs back. Vertical drags on the video are ours (no scrolling).
-    addCss('#player-container-id { touch-action: pan-x !important; }');
+    // The seek bar keeps every drag: with pan-x iOS could take a sideways drag over and
+    // cut YouTube's seeking short, leaving it short of the finger.
+    addCss(
+      '#player-container-id { touch-action: pan-x !important; }\n' +
+        '#player-container-id :is(yt-progress-bar, [class*="ProgressBar"], [class*="progress-bar"]) { touch-action: none !important; }\n'
+    );
+    const onSeekBar = function (target) {
+      return target.closest('yt-progress-bar, [class*="ProgressBar"], [class*="progress-bar"]');
+    };
     const playerBox = function (target) {
       return location.pathname === '/watch' && !document.fullscreenElement && !root.classList.contains('tubeshell-full') &&
-        target instanceof Element
+        target instanceof Element && !onSeekBar(target)
         ? target.closest('#player-container-id')
         : null;
     };
@@ -1832,6 +1840,24 @@
     document.addEventListener('touchend', release, { capture: true, passive: true });
     document.addEventListener('touchcancel', release, { capture: true, passive: true });
 
+    // Signed in, the videos under a video get a row of filter chips that sticks below
+    // YouTube's header and player. With the header gone (the app's capsule) it stuck in
+    // the middle of the screen: it scrolls away with the list instead.
+    let chipsChecked = 0;
+    const unstickChips = function () {
+      if (location.pathname !== '/watch' || Date.now() - chipsChecked < 500) return;
+      chipsChecked = Date.now();
+      // Looked at again each time: YouTube can make the row sticky later.
+      for (const chip of document.querySelectorAll('[class*="chip" i]')) {
+        for (let el = chip, i = 0; el && el !== document.body && i < 6; el = el.parentElement, i++) {
+          if (el.id === 'player-container-id' || el.tagName === 'YTM-HEADER') break;
+          const position = getComputedStyle(el).position;
+          if (position === 'sticky' || position === 'fixed') el.style.setProperty('position', 'static', 'important');
+        }
+      }
+    };
+    window.addEventListener('scroll', unstickChips, { passive: true });
+
     // Video gestures, like ReVanced: in the app's fullscreen, drag up or down on the left
     // half for brightness and on the right half for volume (holding for 2x is YouTube's
     // own). The app changes those and shows the level over the video.
@@ -1849,7 +1875,7 @@
         const full = fullscreenNow();
         if (event.touches.length !== 1 || !full || !target || !full.contains(target)) return;
         // Leave the seek bar and the buttons alone.
-        if (target.closest('button, a, [role="slider"], [class*="progress-bar"]')) return;
+        if (target.closest('button, a, [role="slider"]') || onSeekBar(target)) return;
         const touch = event.touches[0];
         gesture = { x: touch.clientX, y: touch.clientY, lastY: touch.clientY, mode: null };
         gesture.side = touch.clientX < innerWidth / 2 ? 'brightness' : 'volume';

@@ -100,6 +100,8 @@ enum DefaultsKey {
   static let lastPlayerURL = "TubeShell.lastPlayerURL"
   static let quality = "TubeShell.quality"
   static let dataSaver = "TubeShell.dataSaver"
+  /// Shorts shown in YouTube (hidden by default, see Shields.js section 8).
+  static let showShorts = "TubeShell.showShorts"
 
   /// Last page visited in a tab (saved by WebTab), so the app reopens where you were.
   static func lastURL(_ tab: AppTab) -> String { "TubeShell.lastURL.\(tab.rawValue)" }

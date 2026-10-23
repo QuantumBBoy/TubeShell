@@ -804,18 +804,34 @@
         'ytm-mealbar-promo-renderer',
         'ytm-app-promo-renderer',
         'ytm-upsell-dialog-renderer',
-        // Shorts on m.youtube.com: shelves, single entries and the bottom bar tab. The
-        // containers that hold a Short are marked by the sweep (SHORT_MARK): :has() over
-        // every feed entry is expensive.
+      ]
+  ).join(',\n') + ' { display: none !important; }';
+
+  addCss(css);
+
+  // Shorts on m.youtube.com: shelves, single entries and the bottom bar tab, unless shown
+  // from the app's menu (⋯ › Shorts, the "tubeshell-shorts" class). The containers that
+  // hold a Short are marked by the sweep (SHORT_MARK): :has() over every feed entry is
+  // expensive.
+  const showShorts = function () {
+    return pref('tubeShellShorts', 'hide') === 'show';
+  };
+  if (!isMusicHost) {
+    if (showShorts()) document.documentElement.classList.add('tubeshell-shorts');
+    addCss(
+      [
         'ytm-reel-shelf-renderer',
         'ytm-shorts-lockup-view-model',
         'ytm-shorts-lockup-view-model-v2',
         '[data-tubeshell-short]',
         'ytm-pivot-bar-item-renderer:has(.pivot-shorts)',
       ]
-  ).join(',\n') + ' { display: none !important; }';
-
-  addCss(css);
+        .map(function (selector) {
+          return 'html:not(.tubeshell-shorts) ' + selector;
+        })
+        .join(',\n') + ' { display: none !important; }'
+    );
+  }
 
   // Brave hides these YouTube Music dialogs by their text (English and Spanish), plus the
   // "Open in the YouTube Music app" modal.
@@ -881,9 +897,10 @@
         'ytm-rich-section-renderer'
       );
 
-      // A Shorts link (shared, or from a page we did not clean): open it as a normal video.
+      // With Shorts hidden, a Shorts link (shared, or from a page we did not clean) opens
+      // as a normal video.
       const short = location.pathname.match(/^\/shorts\/([\w-]{11})/);
-      if (short) location.replace('/watch?v=' + short[1]);
+      if (short && !showShorts()) location.replace('/watch?v=' + short[1]);
     }
 
     document.querySelectorAll(OPEN_APP_ENTRIES).forEach(function (entry) {
@@ -1316,6 +1333,11 @@
       },
       // Captions on or off for the video on screen.
       // Remembered: captions stay off on every video unless turned on here.
+      // Shorts shown or hidden, from the app's menu (section 8).
+      shorts: function (show) {
+        setPref('tubeShellShorts', show ? 'show' : 'hide');
+        root.classList.toggle('tubeshell-shorts', show);
+      },
       subtitles: function () {
         const on = pref('tubeShellCaptions', 'off') !== 'on';
         setPref('tubeShellCaptions', on ? 'on' : 'off');
@@ -2033,7 +2055,8 @@
       event.stopImmediatePropagation();
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     };
-    for (const type of ['touchend', 'click', 'focusin']) document.addEventListener(type, openAppSearch, true);
+    // A tap (not the end of a scroll) or the field getting the focus.
+    for (const type of ['click', 'focusin']) document.addEventListener(type, openAppSearch, true);
   }
 
   // ---------------------------------------------------------------------------

@@ -73,6 +73,19 @@ extension MainViewController {
           self?.runOnPlayback("subtitles()")
         })
     }
+    if selectedTab == .youtube {
+      let showing = UserDefaults.standard.bool(forKey: DefaultsKey.showShorts)
+      sections.append(
+        UIAction(
+          title: L("Mostrar Shorts", "Show Shorts"), image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+          state: showing ? .on : .off
+        ) { [weak self] _ in
+          UserDefaults.standard.set(!showing, forKey: DefaultsKey.showShorts)
+          // Both YouTube pages (list and player) share the page's stored setting.
+          self?.webTabs[.youtube]?.run("shorts(\(!showing))")
+          self?.playerTab?.run("shorts(\(!showing))")
+        })
+    }
     if let tab = selectedTab {
       sections.append(playbackMenu(for: tab))
     }

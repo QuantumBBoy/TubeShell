@@ -23,7 +23,7 @@ En lugar de las cabeceras de YouTube y Music hay una cápsula alrededor de la is
 - **▶︎ ♪** cambia de pestaña sin recargar ni cortar la música. Tocar la pestaña en la que estás vuelve a su inicio. Mantener ♪ reanuda la última canción.
 - **🔍** abre el buscador. Mantenerlo pulsado busca por voz.
 - **☾** (solo en Music) es el temporizador para dormir, con la cuenta atrás en la cápsula.
-- **⋯** abre el menú: compartir, subtítulos, velocidad, calidad y ahorro de datos, letra, cuenta, AirPlay y recargar. En Music también Inicio, Explorar, Biblioteca e Historial.
+- **⋯** abre el menú: compartir, subtítulos, mostrar Shorts, velocidad, calidad y ahorro de datos, letra, cuenta, AirPlay y recargar. En Music también Inicio, Explorar, Biblioteca e Historial.
 
 En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba con los mismos botones.
 
@@ -38,13 +38,13 @@ En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba
 - **Sin anuncios**: los mismos filtros que Brave y uBlock Origin. Si alguno se cuela, se silencia y se salta solo.
 - **SponsorBlock**: salta patrocinios, autopromoción y recordatorios de «suscríbete», con un aviso.
 - **Títulos sin clickbait** (DeArrow): en las listas y bajo el vídeo, el título escrito por la comunidad cuando lo hay.
-- **Sin Shorts** en la portada, las búsquedas ni la barra inferior. Un enlace a un Short se abre como vídeo normal.
+- **Sin Shorts** en la portada, las búsquedas ni la barra inferior, y un enlace a un Short se abre como vídeo normal. Si quieres verlos, actívalos en ⋯ › *Mostrar Shorts*.
 - **Los vídeos se abren encima de la lista**, así la lista nunca se recarga.
 - **Minirreproductor**: arrastra el vídeo hacia abajo y sigue sonando en una ventanita que puedes mover.
   - Tócala para volver al vídeo; el botón del centro pausa.
   - Lánzala a la **izquierda** (o pulsa ×) para cerrarla.
   - Lánzala a la **derecha** y se esconde en el borde con una pestaña ‹, sin dejar de sonar. Toca la pestaña para sacarla.
-- **Pantalla completa al girar** el iPhone (también si abres un vídeo ya en horizontal). Al ponerlo vertical vuelve y el vídeo sigue sonando.
+- **Pantalla completa al girar** el iPhone, o con el botón de pantalla completa del vídeo (gira la pantalla). Siempre con los controles de YouTube, y la rueda de ajustes se abre encima. Al ponerlo vertical vuelve y el vídeo sigue sonando.
 - **Gestos en pantalla completa**: desliza arriba o abajo en la mitad izquierda para el **brillo** y en la derecha para el **volumen**. Mantener pulsado el vídeo lo pone a 2× (es de YouTube).
 - **Calidad hasta 4K60 HDR** sin Premium (opción *Máxima*). Por defecto 720p.
 - **Ahorro de datos**: con datos móviles o en Modo de datos reducidos, 480p; con wifi, la calidad elegida. Cambia solo, también a mitad de vídeo.

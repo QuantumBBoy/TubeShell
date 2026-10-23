@@ -357,6 +357,8 @@ final class WebTab: NSObject {
 
   private func reapplyPageState() {
     run("network(\(cellular))")
+    // The menu's choice wins over what the page stored (cleared site data, for one).
+    if tab == .youtube { run("shorts(\(UserDefaults.standard.bool(forKey: DefaultsKey.showShorts)))") }
     if miniMode { run("mini(true)") }
     if sleepAtEnd { run("sleepAtEnd(true)") }
   }

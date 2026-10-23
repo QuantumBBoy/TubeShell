@@ -2042,7 +2042,8 @@
   if (isTopFrame && location.hostname === 'm.youtube.com') {
     const searchField = function (target) {
       if (!(target instanceof Element)) return null;
-      const field = target.closest('ytm-searchbox, ytm-search, [role="search"], input[type="search"], input[name="search_query"]');
+      // (Not ytm-search: that is the whole results page.)
+      const field = target.closest('ytm-searchbox, [role="search"], input[type="search"], input[name="search_query"]');
       if (field) return field;
       const label = (target.closest('input, button, [role="button"]') || target).getAttribute('placeholder') ||
         (target.closest('button, [role="button"]') || target).getAttribute('aria-label') || '';

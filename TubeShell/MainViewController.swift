@@ -409,7 +409,7 @@ final class MainViewController: UIViewController {
     perform(.play)
   }
 
-  private func presentSearch(voice: Bool) {
+  func presentSearch(voice: Bool) {
     guard let tab = selectedTab, presentedViewController == nil else { return }
     tick()
     // Searching YouTube with a video open: it keeps playing in the mini player.

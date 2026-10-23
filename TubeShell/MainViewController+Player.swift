@@ -306,6 +306,15 @@ extension MainViewController {
     UserDefaults.standard.removeObject(forKey: DefaultsKey.lastPlayerURL)
   }
 
+  /// YouTube's fullscreen button: turns the screen sideways (the app's fullscreen follows,
+  /// see viewWillTransition) or back upright.
+  func turnScreen() {
+    guard let scene = view.window?.windowScene else { return }
+    tick()
+    let sideways = view.bounds.width > view.bounds.height
+    scene.requestGeometryUpdate(.iOS(interfaceOrientations: sideways ? .portrait : .landscapeRight))
+  }
+
   // MARK: - Video gestures (Shields.js section 13)
 
   /// A drag on the fullscreen video: left half brightness, right half volume, with the

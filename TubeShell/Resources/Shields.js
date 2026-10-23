@@ -1761,7 +1761,25 @@
       'html:is(.tubeshell-mini, .tubeshell-full) :is(#player-container-id #player, #movie_player, video.html5-main-video)' +
       ' { width: 100vw !important; height: 100vh !important; left: 0 !important; top: 0 !important; object-fit: contain !important; }\n' +
       'html.tubeshell-full, html.tubeshell-full body { overflow: hidden !important; }\n' +
-      'html.tubeshell-full #player-container-id { touch-action: none !important; }\n';
+      'html.tubeshell-full #player-container-id { touch-action: none !important; z-index: 2147483646 !important; }\n' +
+      // YouTube's own sheets (the player's settings ⚙, quality, speed) open over it.
+      'html.tubeshell-full :is(bottom-sheet-container, .ytSpecBottomSheetLayoutHost, ytw-scrim) { z-index: 2147483647 !important; }\n';
+
+    // YouTube's fullscreen button asks the app to turn the screen, like the YouTube app:
+    // sideways it is the app's fullscreen (section 10's fullscreen()), not iOS's own
+    // video player or WebKit's fullscreen, so it always looks and works the same.
+    const askToTurn = function (original) {
+      return function () {
+        if (location.pathname === '/watch' && post({ type: 'turnScreen' })) return Promise.resolve();
+        return original.apply(this, arguments);
+      };
+    };
+    for (const name of ['requestFullscreen', 'webkitRequestFullscreen']) {
+      if (Element.prototype[name]) Element.prototype[name] = askToTurn(Element.prototype[name]);
+    }
+    if (HTMLVideoElement.prototype.webkitEnterFullscreen) {
+      HTMLVideoElement.prototype.webkitEnterFullscreen = askToTurn(HTMLVideoElement.prototype.webkitEnterFullscreen);
+    }
     addCss(miniCss);
 
     // Captions: hidden everywhere (feed previews included) unless turned on from the
@@ -1994,6 +2012,28 @@
       },
       true
     );
+  }
+
+  // The page's own search field (on the home page, for one) opens YouTube's search in
+  // its header, which the app hides: nothing shows and nothing is searched. It opens the
+  // app's search instead.
+  if (isTopFrame && location.hostname === 'm.youtube.com') {
+    const searchField = function (target) {
+      if (!(target instanceof Element)) return null;
+      const field = target.closest('ytm-searchbox, ytm-search, [role="search"], input[type="search"], input[name="search_query"]');
+      if (field) return field;
+      const label = (target.closest('input, button, [role="button"]') || target).getAttribute('placeholder') ||
+        (target.closest('button, [role="button"]') || target).getAttribute('aria-label') || '';
+      return /^(search youtube|buscar en youtube|search|buscar)$/i.test(label.trim()) && !target.closest('#player-container-id') ? target : null;
+    };
+    const openAppSearch = function (event) {
+      if (!searchField(event.target)) return;
+      if (!post({ type: 'openSearch' })) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    };
+    for (const type of ['touchend', 'click', 'focusin']) document.addEventListener(type, openAppSearch, true);
   }
 
   // ---------------------------------------------------------------------------

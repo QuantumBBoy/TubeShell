@@ -289,6 +289,8 @@ final class MainViewController: UIViewController {
   let miniPlayButton = UIButton(type: .system)
   var playerTab: WebTab?
   var playerMinimized = false
+  /// The YouTube player is in the mode that sends the picture over AirPlay (360p).
+  var airPlayVideo = false
   /// Video to reopen in the player once YouTube is shown (see viewDidLoad).
   var pendingPlayerURL: URL?
   /// Where the mini player was left (its centre); nil = bottom right.
@@ -436,6 +438,7 @@ final class MainViewController: UIViewController {
   /// way to present itself, so its own button is triggered.
   lazy var routePicker: AVRoutePickerView = {
     let picker = AVRoutePickerView(frame: .zero)
+    picker.prioritizesVideoDevices = true
     picker.isHidden = true
     view.addSubview(picker)
     return picker

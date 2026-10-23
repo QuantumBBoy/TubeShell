@@ -23,7 +23,7 @@ En lugar de las cabeceras de YouTube y Music hay una cápsula alrededor de la is
 - **▶︎ ♪** cambia de pestaña sin recargar ni cortar la música. Tocar la pestaña en la que estás vuelve a su inicio. Mantener ♪ reanuda la última canción.
 - **🔍** abre el buscador. Mantenerlo pulsado busca por voz.
 - **☾** (solo en Music) es el temporizador para dormir, con la cuenta atrás en la cápsula.
-- **⋯** abre el menú: compartir, subtítulos, mostrar Shorts, velocidad, calidad y ahorro de datos, letra, cuenta, AirPlay y recargar. En Music también Inicio, Explorar, Biblioteca e Historial.
+- **⋯** abre el menú: compartir, subtítulos, mostrar Shorts, velocidad, calidad y ahorro de datos, letra, cuenta, AirPlay a la tele y recargar. En Music también Inicio, Explorar, Biblioteca e Historial.
 
 En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba con los mismos botones.
 
@@ -50,7 +50,8 @@ En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba
 - **Ahorro de datos**: con datos móviles o en Modo de datos reducidos, 480p; con wifi, la calidad elegida. Cambia solo, también a mitad de vídeo.
 - **Subtítulos** apagados por defecto, también en las vistas previas. Se activan en ⋯ y se recuerda.
 - **Compartir en el minuto exacto** con un enlace `youtu.be` limpio.
-- **Velocidad**, **imagen en imagen** y **AirPlay**.
+- **Velocidad** e **imagen en imagen**.
+- **AirPlay a la tele**: ⋯ › *AirPlay a la tele* recarga el vídeo en el mismo segundo en un formato que la tele puede mostrar (360p, el único que YouTube da así; en su formato normal solo llegaría el sonido) y abre el selector. Vuelve a tocarlo para recuperar la calidad normal. Para verlo a más calidad, usa *Duplicar pantalla* del Centro de control con el iPhone en horizontal.
 
 ## YouTube Music
 

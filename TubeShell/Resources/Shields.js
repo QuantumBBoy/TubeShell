@@ -42,6 +42,25 @@
   const isTopFrame = window === window.top;
   const isMusicHost = location.hostname === 'music.youtube.com';
 
+  // AirPlay to a TV (the app's ⋯ › AirPlay, see airplayMode in section 10): YouTube
+  // streams video through Media Source, which AirPlay can only send as sound, and turns
+  // remote playback off. Without Media Source it falls back to a plain video file (360p,
+  // the only one it offers) that AirPlay sends whole. Kept for the rest of this page's
+  // life, so the next videos go to the TV too.
+  if (!isMusicHost) {
+    let airplay = false;
+    try {
+      airplay = sessionStorage.getItem('tubeShellAirPlay') === 'on';
+    } catch (e) {}
+    if (airplay) {
+      for (const name of ['ManagedMediaSource', 'MediaSource', 'WebKitMediaSource']) {
+        try {
+          Object.defineProperty(window, name, { value: undefined, configurable: true, writable: true });
+        } catch (e) {}
+      }
+    }
+  }
+
   // Device language (set by the app): Spanish or English. Labels of the SponsorBlock
   // toast and of the Music gesture hints.
   const es = String(window.__tubeShellLang || navigator.language || '').toLowerCase().indexOf('es') === 0;
@@ -1333,6 +1352,18 @@
       },
       // Captions on or off for the video on screen.
       // Remembered: captions stay off on every video unless turned on here.
+      // AirPlay video on or off (see the top of this file): the page loads again at the
+      // same second, in the mode that can send the picture.
+      airplayMode: function (on) {
+        try {
+          if (on) sessionStorage.setItem('tubeShellAirPlay', 'on');
+          else sessionStorage.removeItem('tubeShellAirPlay');
+        } catch (e) {}
+        const url = new URL(location.href);
+        const video = document.querySelector('video');
+        if (url.pathname === '/watch' && video && video.currentTime > 1) url.searchParams.set('t', Math.floor(video.currentTime) + 's');
+        location.replace(url.href);
+      },
       // Shorts shown or hidden, from the app's menu (section 8).
       shorts: function (show) {
         setPref('tubeShellShorts', show ? 'show' : 'hide');

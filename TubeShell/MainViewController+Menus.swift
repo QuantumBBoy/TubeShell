@@ -114,10 +114,7 @@ extension MainViewController {
           self.runInSelectedTab("account()")
         }
       ]))
-    sections.append(
-      UIAction(title: "AirPlay", image: UIImage(systemName: "airplayvideo")) { [weak self] _ in
-        self?.showAirPlayPicker()
-      })
+    sections.append(airPlayItem())
     sections.append(
       UIAction(title: L("Recargar", "Reload"), image: UIImage(systemName: "arrow.clockwise")) { [weak self] _ in
         guard let self, let tab = self.selectedTab else { return }
@@ -206,6 +203,28 @@ extension MainViewController {
       var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
       if seconds > 0 { components?.queryItems = [URLQueryItem(name: "t", value: String(seconds))] }
       self?.share(components?.url ?? url)
+    }
+  }
+
+  /// On a YouTube video, AirPlay has to send the picture too: the player reloads in the
+  /// mode that can (360p, see Shields.js) and the picker opens; tapped again, back to the
+  /// normal quality. Elsewhere (Music) it is just the system picker.
+  private func airPlayItem() -> UIAction {
+    guard selectedTab == .youtube, let player = playerTab else {
+      return UIAction(title: "AirPlay", image: UIImage(systemName: "airplayvideo")) { [weak self] _ in
+        self?.showAirPlayPicker()
+      }
+    }
+    let on = airPlayVideo
+    return UIAction(
+      title: on ? L("AirPlay: dejar la tele", "AirPlay: stop the TV mode") : L("AirPlay a la tele", "AirPlay to a TV"),
+      image: UIImage(systemName: "airplayvideo"), state: on ? .on : .off
+    ) { [weak self] _ in
+      guard let self else { return }
+      self.airPlayVideo = !on
+      player.run("airplayMode(\(!on))")
+      player.runAfterLoad("startPlayback()")  // reloaded at the same second, with sound
+      if !on { self.showAirPlayPicker() }
     }
   }
 

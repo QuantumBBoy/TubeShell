@@ -323,6 +323,7 @@ extension MainViewController {
     player.pauseAllMedia()
     player.webView.removeFromSuperview()
     playerTab = nil
+    airPlayVideo = false  // a new player starts in normal quality
     playerMinimized = false
     setMiniStashed(false)
     miniView.isHidden = true

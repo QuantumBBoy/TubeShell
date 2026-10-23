@@ -12,6 +12,8 @@ import UIKit
 final class LevelIndicator: UIView {
   private let icon = UIImageView()
   private let bar = UIProgressView(progressViewStyle: .bar)
+  /// The time, when moving through a Short.
+  private let time = UILabel()
   private var hideTimer: Timer?
 
   init() {
@@ -34,7 +36,11 @@ final class LevelIndicator: UIView {
     bar.progressTintColor = .white
     bar.layer.cornerRadius = 2
     bar.clipsToBounds = true
-    let row = UIStackView(arrangedSubviews: [icon, bar])
+    time.font = .monospacedDigitSystemFont(ofSize: 15, weight: .semibold)
+    time.textColor = .white
+    time.isHidden = true
+    time.setContentHuggingPriority(.required, for: .horizontal)
+    let row = UIStackView(arrangedSubviews: [icon, bar, time])
     row.spacing = 12
     row.alignment = .center
     row.translatesAutoresizingMaskIntoConstraints = false
@@ -55,6 +61,24 @@ final class LevelIndicator: UIView {
       brightness ? "sun.max.fill" : level == 0 ? "speaker.slash.fill" : level < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.3.fill"
     icon.image = UIImage(systemName: symbol)
     bar.progress = Float(level)
+    time.isHidden = true
+    appear()
+  }
+
+  /// Moving through a Short: where it is, as a bar and as "0:12 / 0:45".
+  func show(seconds: Double, of duration: Double) {
+    func clock(_ value: Double) -> String {
+      let total = max(0, Int(value))
+      return "\(total / 60):" + String(format: "%02d", total % 60)
+    }
+    icon.image = UIImage(systemName: "play.fill")
+    bar.progress = duration > 0 ? Float(seconds / duration) : 0
+    time.text = clock(seconds) + " / " + clock(duration)
+    time.isHidden = false
+    appear()
+  }
+
+  private func appear() {
     if alpha < 1 {
       transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
       UIView.animate(withDuration: 0.15) {
@@ -333,10 +357,20 @@ extension MainViewController {
     } else {
       return
     }
+    placeLevelIndicator(width: 230, y: max(view.safeAreaInsets.top, 16) + 8)
+    levelIndicator.show(brightness: kind == "brightness", level: level)
+  }
+
+  /// A drag sideways on a Short (Shields.js): where it is now, low on the screen.
+  func shortScrubbed(to seconds: Double, of duration: Double) {
+    placeLevelIndicator(width: 300, y: view.bounds.height * 0.72)
+    levelIndicator.show(seconds: seconds, of: duration)
+  }
+
+  private func placeLevelIndicator(width: CGFloat, y: CGFloat) {
     if levelIndicator.superview == nil { view.addSubview(levelIndicator) }
     view.bringSubviewToFront(levelIndicator)
-    levelIndicator.frame = CGRect(x: (view.bounds.width - 230) / 2, y: max(view.safeAreaInsets.top, 16) + 8, width: 230, height: 46)
-    levelIndicator.show(brightness: kind == "brightness", level: level)
+    levelIndicator.frame = CGRect(x: (view.bounds.width - width) / 2, y: y, width: width, height: 46)
   }
 
   // MARK: - Hiding the relayout when the player changes size

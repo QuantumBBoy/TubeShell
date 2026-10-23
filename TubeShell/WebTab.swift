@@ -493,6 +493,8 @@ final class WebTab: NSObject {
       owner?.openVideo(url)
     } else if type == "musicPlayer", let open = body["open"] as? Bool {
       setMusicPlayerOpen(open)
+    } else if type == "scrub", let time = body["t"] as? Double, let duration = body["d"] as? Double {
+      owner?.shortScrubbed(to: time, of: duration)
     } else if type == "openSearch" {
       owner?.presentSearch(voice: false)
     } else if type == "turnScreen" {

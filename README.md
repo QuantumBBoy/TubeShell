@@ -38,7 +38,7 @@ En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba
 - **Sin anuncios**: los mismos filtros que Brave y uBlock Origin. Si alguno se cuela, se silencia y se salta solo.
 - **SponsorBlock**: salta patrocinios, autopromoción y recordatorios de «suscríbete», con un aviso.
 - **Títulos sin clickbait** (DeArrow): en las listas y bajo el vídeo, el título escrito por la comunidad cuando lo hay.
-- **Sin Shorts** en la portada, las búsquedas ni la barra inferior, y un enlace a un Short se abre como vídeo normal. Si quieres verlos, actívalos en ⋯ › *Mostrar Shorts*.
+- **Sin Shorts** en la portada, las búsquedas ni la barra inferior, y un enlace a un Short se abre como vídeo normal. Si quieres verlos, actívalos en ⋯ › *Mostrar Shorts*; dentro de un Short, arrastra el dedo a los lados desde el centro para avanzar o retroceder.
 - **Los vídeos se abren encima de la lista**, así la lista nunca se recarga.
 - **Minirreproductor**: arrastra el vídeo hacia abajo y sigue sonando en una ventanita que puedes mover.
   - Tócala para volver al vídeo; el botón del centro pausa.

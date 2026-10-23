@@ -2036,6 +2036,72 @@
     );
   }
 
+  // Shorts: drag sideways from the middle of the screen to move through the Short (the
+  // whole width is the whole Short), with the time shown by the app. Up and down still change Short, and the screen
+  // edges stay free for the back gesture.
+  if (isTopFrame && location.hostname === 'm.youtube.com') {
+    // The Short on screen: the video whose box holds the middle of the screen.
+    const shortVideo = function () {
+      for (const video of document.querySelectorAll('video')) {
+        const box = video.getBoundingClientRect();
+        if (box.top <= innerHeight / 2 && box.bottom >= innerHeight / 2 && box.width > 0) return video;
+      }
+      return null;
+    };
+    let scrub = null;
+    document.addEventListener(
+      'touchstart',
+      function (event) {
+        scrub = null;
+        if (!location.pathname.startsWith('/shorts/') || event.touches.length !== 1) return;
+        const t = event.touches[0];
+        const target = event.target instanceof Element ? event.target : null;
+        // The middle of the screen, away from the edges and from buttons and links.
+        if (t.clientX < innerWidth * 0.12 || t.clientX > innerWidth * 0.88) return;
+        if (t.clientY < innerHeight * 0.2 || t.clientY > innerHeight * 0.8) return;
+        if (target && target.closest('button, a, input, [role="button"], [role="slider"]')) return;
+        scrub = { x: t.clientX, y: t.clientY, active: false };
+      },
+      { capture: true, passive: true }
+    );
+    document.addEventListener(
+      'touchmove',
+      function (event) {
+        if (!scrub) return;
+        const t = event.touches[0];
+        const dx = t.clientX - scrub.x;
+        const dy = t.clientY - scrub.y;
+        if (!scrub.active) {
+          if (Math.abs(dx) < 14 && Math.abs(dy) < 14) return;
+          // Up or down: YouTube's next / previous Short.
+          if (Math.abs(dx) < 1.5 * Math.abs(dy)) return void (scrub = null);
+          const video = shortVideo();
+          if (!video || !video.duration) return void (scrub = null);
+          scrub.video = video;
+          scrub.from = video.currentTime;
+          scrub.active = true;
+          post({ type: 'haptic' });
+        }
+        if (event.cancelable) event.preventDefault();
+        const video = scrub.video;
+        const time = Math.max(0, Math.min(video.duration - 0.25, scrub.from + (dx / innerWidth) * video.duration));
+        video.currentTime = time;
+        // The app shows where it is (a glass capsule, see MainViewController.shortScrubbed).
+        post({ type: 'scrub', t: time, d: video.duration });
+      },
+      { capture: true, passive: false }
+    );
+    const endScrub = function (event) {
+      const was = scrub;
+      scrub = null;
+      if (!was || !was.active) return;
+      // The lift would also count as a tap (pause): not after a scrub.
+      if (event && event.cancelable) event.preventDefault();
+    };
+    document.addEventListener('touchend', endScrub, { capture: true, passive: false });
+    document.addEventListener('touchcancel', endScrub, { capture: true, passive: false });
+  }
+
   // The page's own search field (on the home page, for one) opens YouTube's search in
   // its header, which the app hides: nothing shows and nothing is searched. It opens the
   // app's search instead.

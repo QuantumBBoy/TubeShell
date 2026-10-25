@@ -45,7 +45,7 @@ En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba
   - Lánzala a la **izquierda** (o pulsa ×) para cerrarla.
   - Lánzala a la **derecha** y se esconde en el borde con una pestaña ‹, sin dejar de sonar. Toca la pestaña para sacarla.
 - **Pantalla completa con el reproductor de iOS** (sus controles de Liquid Glass) al girar el iPhone o con el botón de pantalla completa del vídeo. Al ponerlo vertical o cerrarlo vuelve, y el vídeo sigue sonando.
-- **Calidad hasta 4K60 HDR** sin Premium (opción *Máxima*). Por defecto 720p.
+- **Calidad**: por defecto 1080p. 2K, 4K60 HDR y *Máxima* (sin Premium) se eligen para el vídeo que estás viendo, porque tardan más en cargar.
 - **Ahorro de datos**: con datos móviles o en Modo de datos reducidos, 480p; con wifi, la calidad elegida. Cambia solo, también a mitad de vídeo.
 - **Subtítulos** apagados por defecto, también en las vistas previas. Se activan en ⋯ y se recuerda.
 - **Compartir en el minuto exacto** con un enlace `youtu.be` limpio.

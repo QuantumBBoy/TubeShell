@@ -380,10 +380,29 @@
   };
   // Data saver: on mobile data (or iOS Low Data Mode, told by the app) videos are capped
   // at 480p; on wifi the chosen quality applies. On by default, switchable in the menu.
+  // The last network the app told is stored, so a page knows it from the start: every
+  // quality change makes YouTube rebuild the video from its start (it then seeks back),
+  // so a video must get its quality once, not 1080p then 480p a moment later.
+  cellular = pref('tubeShellCellular', 'off') === 'on';
   const QUALITY_ORDER = ['tiny', 'small', 'medium', 'large', 'hd720', 'hd1080', 'hd1440', 'hd2160', 'highres'];
   const SAVER_QUALITY = 'large';
+  // The saved quality goes up to 1080p (default 1080p): 2K, 4K and "max" are picked for
+  // one video at a time (oneVideoQuality), as they can take long to load.
+  const DEFAULT_QUALITY = 'hd1080';
+  const savedQuality = function () {
+    const quality = pref('tubeShellQuality', DEFAULT_QUALITY);
+    return QUALITY_ORDER.indexOf(quality) > QUALITY_ORDER.indexOf(DEFAULT_QUALITY) || quality === 'max'
+      ? DEFAULT_QUALITY
+      : quality;
+  };
+  let oneVideoQuality = null; // { v: video id, quality }
+  const currentVideoId = function () {
+    return new URLSearchParams(location.search).get('v');
+  };
+  let appliedQuality = null; // { v: video id, quality } last given to the player
   const applyQuality = function (player) {
-    let quality = pref('tubeShellQuality', 'hd720');
+    let quality =
+      oneVideoQuality && oneVideoQuality.v === currentVideoId() ? oneVideoQuality.quality : savedQuality();
     try {
       // "max": the best this video has (up to 2160p60 HDR on an iPhone 15 Pro).
       if (quality === 'max') quality = (player.getAvailableQualityLevels() || [])[0] || 'hd1080';
@@ -391,6 +410,10 @@
       if (saving && (quality === 'auto' || QUALITY_ORDER.indexOf(quality) > QUALITY_ORDER.indexOf(SAVER_QUALITY))) {
         quality = SAVER_QUALITY;
       }
+      // The same quality again would still rebuild the video: skip it.
+      const id = currentVideoId();
+      if (appliedQuality && appliedQuality.v === id && appliedQuality.quality === quality) return;
+      appliedQuality = { v: id, quality };
       if (quality === 'auto') player.setPlaybackQualityRange('auto');
       else player.setPlaybackQualityRange(quality, quality);
     } catch (e) {}
@@ -1340,8 +1363,13 @@
         setPref('tubeShellSpeed', String(rate));
         document.querySelectorAll('video, audio').forEach(applySpeed);
       },
-      quality: function (quality) {
-        setPref('tubeShellQuality', quality);
+      // From the app's menu: up to 1080p it is saved; higher, only for this video.
+      quality: function (quality, thisVideoOnly) {
+        if (thisVideoOnly) oneVideoQuality = { v: currentVideoId(), quality };
+        else {
+          oneVideoQuality = null;
+          setPref('tubeShellQuality', quality);
+        }
         const player = document.getElementById('movie_player');
         if (player && player.setPlaybackQualityRange) applyQuality(player);
       },
@@ -1349,6 +1377,7 @@
       // data saver switch; the video on screen follows at once.
       network: function (onCellular) {
         cellular = onCellular;
+        setPref('tubeShellCellular', onCellular ? 'on' : 'off');
         const player = document.getElementById('movie_player');
         if (player && player.setPlaybackQualityRange && location.pathname === '/watch') applyQuality(player);
       },

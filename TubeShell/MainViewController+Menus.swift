@@ -154,16 +154,22 @@ extension MainViewController {
       UIMenu(title: L("Velocidad", "Speed"), image: UIImage(systemName: "gauge.with.dots.needle.67percent"), children: speeds),
     ]
     if tab == .youtube {
-      let currentQuality = defaults.string(forKey: DefaultsKey.quality) ?? "hd720"
+      // Saved up to 1080p (the default); 2K, 4K and Maximum are slow to load, so they are
+      // only for the video playing (Shields.js keeps them until the next one).
+      let saved = defaults.string(forKey: DefaultsKey.quality) ?? "hd1080"
+      let currentQuality = ["hd1440", "hd2160", "max"].contains(saved) ? "hd1080" : saved
       // Without Premium YouTube still serves up to 4K (VP9/AV1, decoded in hardware);
       // the video falls back to its best if it has less.
       let qualities = [
-        ("auto", L("Automática", "Auto")), ("hd720", "720p"), ("hd1080", "1080p"),
-        ("hd1440", "1440p (2K)"), ("hd2160", "2160p (4K)"), ("max", L("Máxima", "Maximum")),
-      ].map { value, title in
-        UIAction(title: title, state: value == currentQuality ? .on : .off) { [weak self] _ in
-          defaults.set(value, forKey: DefaultsKey.quality)
-          self?.runOnPlayback("quality('\(value)')")
+        ("auto", L("Automática", "Auto"), false), ("hd720", "720p", false), ("hd1080", "1080p", false),
+        ("hd1440", "1440p (2K)", true), ("hd2160", "2160p (4K)", true), ("max", L("Máxima", "Maximum"), true),
+      ].map { value, title, thisVideoOnly in
+        UIAction(
+          title: title, subtitle: thisVideoOnly ? L("Solo este vídeo", "This video only") : nil,
+          state: value == currentQuality ? .on : .off
+        ) { [weak self] _ in
+          if !thisVideoOnly { defaults.set(value, forKey: DefaultsKey.quality) }
+          self?.runOnPlayback("quality('\(value)', \(thisVideoOnly))")
         }
       }
       let saverOn = defaults.object(forKey: DefaultsKey.dataSaver) as? Bool ?? true

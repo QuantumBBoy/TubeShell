@@ -85,6 +85,8 @@ final class MainViewController: UIViewController {
   private let pathMonitor = NWPathMonitor()
   /// Mobile data or iOS Low Data Mode: the data saver caps YouTube at 480p (Shields.js).
   var onCellular = false
+  private var connectionSettle: Timer?
+  private var connectionKnown = false
 
   private func watchConnection() {
     pathMonitor.pathUpdateHandler = { [weak self] path in
@@ -95,9 +97,20 @@ final class MainViewController: UIViewController {
         if path.status == .satisfied {
           self.allWebTabs.forEach { $0.connectionRestored() }
         }
-        guard cellular != self.onCellular else { return }
-        self.onCellular = cellular
-        self.allWebTabs.forEach { $0.cellular = cellular }
+        // Settled for a few seconds first: a connection that flickers between wifi and
+        // mobile data would change the quality back and forth, and each change makes
+        // YouTube restart the video from its beginning.
+        // (The first reading, at launch, counts at once.)
+        self.connectionSettle?.invalidate()
+        self.connectionSettle = Timer.scheduledTimer(withTimeInterval: self.connectionKnown ? 3 : 0, repeats: false) { [weak self] _ in
+          MainActor.assumeIsolated {
+            guard let self else { return }
+            self.connectionKnown = true
+            guard cellular != self.onCellular else { return }
+            self.onCellular = cellular
+            self.allWebTabs.forEach { $0.cellular = cellular }
+          }
+        }
       }
     }
     pathMonitor.start(queue: .main)

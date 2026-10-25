@@ -1157,11 +1157,12 @@
           }, 800);
         }
       },
-      // Rotating the iPhone on a watch page: the app's own fullscreen in landscape (the
-      // player fills the page and the app hides its capsule), back to the page in
-      // portrait. Not WebKit's fullscreen: that one closes on any vertical swipe, which
-      // the brightness and volume gestures need (section 13).
-      fullscreen: function (on) {
+      // Rotating the iPhone on a watch page (or YouTube's fullscreen button, section 13):
+      // iOS's own video player in landscape, with its Liquid Glass controls; back to the
+      // page in portrait. If iOS refuses the player (no tap behind the call), the app's
+      // own fullscreen instead: the player fills the page and the capsule steps aside.
+      // Returns whether the video is going fullscreen.
+      fullscreen: function (on, fromTap) {
         const current = document.fullscreenElement || document.webkitFullscreenElement;
         if (!on) {
           const exit = document.exitFullscreen || document.webkitExitFullscreen;
@@ -1176,10 +1177,30 @@
           });
           return;
         }
-        if (current || location.pathname !== '/watch' || !document.querySelector('video')) return;
-        root.classList.add('tubeshell-full');
-        window.scrollTo(0, 0);
-        window.dispatchEvent(new Event('resize'));
+        const video = document.querySelector('video');
+        if (current || location.pathname !== '/watch' || !video) return false;
+        if (video.webkitDisplayingFullscreen) return true;
+        const appFullscreen = function () {
+          if (video.webkitDisplayingFullscreen || root.classList.contains('tubeshell-full')) return;
+          root.classList.add('tubeshell-full');
+          window.scrollTo(0, 0);
+          window.dispatchEvent(new Event('resize'));
+        };
+        const wasPlaying = !video.paused;
+        try {
+          if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+        } catch (e) {}
+        // iOS can pause the video as its player opens: it goes on if it was playing.
+        if (wasPlaying) {
+          setTimeout(function () {
+            if (video.paused && !video.ended) {
+              const result = nativePlay.call(video);
+              if (result && result.catch) result.catch(function () {});
+            }
+          }, 400);
+        }
+        if (!fromTap) setTimeout(appFullscreen, 600);
+        return true;
       },
       // Search from the app's own search screen. YouTube: open the results page.
       // Music: type into its own search box (no reload, so the music keeps playing). Music
@@ -1818,20 +1839,20 @@
       // YouTube's own sheets (the player's settings ⚙, quality, speed) open over it.
       'html.tubeshell-full :is(bottom-sheet-container, .ytSpecBottomSheetLayoutHost, ytw-scrim) { z-index: 2147483647 !important; }\n';
 
-    // YouTube's fullscreen button asks the app to turn the screen, like the YouTube app:
-    // sideways it is the app's fullscreen (section 10's fullscreen()), not iOS's own
-    // video player or WebKit's fullscreen, so it always looks and works the same.
-    const askToTurn = function (original) {
+    // YouTube's fullscreen button opens iOS's own video player (its Liquid Glass controls)
+    // instead of YouTube's fullscreen page, and turns the screen sideways like the
+    // YouTube app (section 10's fullscreen()).
+    const toNativePlayer = function (original) {
       return function () {
-        if (location.pathname === '/watch' && post({ type: 'turnScreen' })) return Promise.resolve();
+        if (location.pathname === '/watch' && window.__tubeShell.fullscreen(true, true)) {
+          if (innerWidth < innerHeight) post({ type: 'turnScreen' });
+          return Promise.resolve();
+        }
         return original.apply(this, arguments);
       };
     };
     for (const name of ['requestFullscreen', 'webkitRequestFullscreen']) {
-      if (Element.prototype[name]) Element.prototype[name] = askToTurn(Element.prototype[name]);
-    }
-    if (HTMLVideoElement.prototype.webkitEnterFullscreen) {
-      HTMLVideoElement.prototype.webkitEnterFullscreen = askToTurn(HTMLVideoElement.prototype.webkitEnterFullscreen);
+      if (Element.prototype[name]) Element.prototype[name] = toNativePlayer(Element.prototype[name]);
     }
     addCss(miniCss);
 
@@ -2025,7 +2046,15 @@
     };
     document.addEventListener('fullscreenchange', onExit);
     document.addEventListener('webkitfullscreenchange', onExit);
-    document.addEventListener('webkitendfullscreen', keepPlaying, true);
+    document.addEventListener(
+      'webkitendfullscreen',
+      function () {
+        keepPlaying();
+        // Out of iOS's player (swipe down, ✕): back upright, like the YouTube app.
+        if (innerWidth > innerHeight) post({ type: 'leftFullscreen' });
+      },
+      true
+    );
 
     const leaveIfUpright = function () {
       if (innerHeight <= innerWidth) return;

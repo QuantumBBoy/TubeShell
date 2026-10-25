@@ -331,13 +331,18 @@ extension MainViewController {
     UserDefaults.standard.removeObject(forKey: DefaultsKey.lastPlayerURL)
   }
 
-  /// YouTube's fullscreen button: turns the screen sideways (the app's fullscreen follows,
-  /// see viewWillTransition) or back upright.
-  func turnScreen() {
+  /// Turns the screen sideways or back upright: YouTube's fullscreen button (iOS's video
+  /// player is already up, see Shields.js) and leaving that player.
+  func turnScreen(sideways: Bool? = nil) {
     guard let scene = view.window?.windowScene else { return }
-    tick()
-    let sideways = view.bounds.width > view.bounds.height
-    scene.requestGeometryUpdate(.iOS(interfaceOrientations: sideways ? .portrait : .landscapeRight))
+    let isSideways = view.bounds.width > view.bounds.height
+    let wanted = sideways ?? !isSideways
+    guard wanted != isSideways else { return }
+    if sideways == nil { tick() }
+    // A moment later: iOS's video player is opening now and would ignore an earlier turn.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+      scene.requestGeometryUpdate(.iOS(interfaceOrientations: wanted ? .landscapeRight : .portrait))
+    }
   }
 
   // MARK: - Video gestures (Shields.js section 13)

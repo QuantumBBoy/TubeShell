@@ -44,8 +44,7 @@ En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba
   - Tócala para volver al vídeo; el botón del centro pausa.
   - Lánzala a la **izquierda** (o pulsa ×) para cerrarla.
   - Lánzala a la **derecha** y se esconde en el borde con una pestaña ‹, sin dejar de sonar. Toca la pestaña para sacarla.
-- **Pantalla completa al girar** el iPhone, o con el botón de pantalla completa del vídeo (gira la pantalla). Siempre con los controles de YouTube, y la rueda de ajustes se abre encima. Al ponerlo vertical vuelve y el vídeo sigue sonando.
-- **Gestos en pantalla completa**: desliza arriba o abajo en la mitad izquierda para el **brillo** y en la derecha para el **volumen**. Mantener pulsado el vídeo lo pone a 2× (es de YouTube).
+- **Pantalla completa con el reproductor de iOS** (sus controles de Liquid Glass) al girar el iPhone o con el botón de pantalla completa del vídeo. Al ponerlo vertical o cerrarlo vuelve, y el vídeo sigue sonando.
 - **Calidad hasta 4K60 HDR** sin Premium (opción *Máxima*). Por defecto 720p.
 - **Ahorro de datos**: con datos móviles o en Modo de datos reducidos, 480p; con wifi, la calidad elegida. Cambia solo, también a mitad de vídeo.
 - **Subtítulos** apagados por defecto, también en las vistas previas. Se activan en ⋯ y se recuerda.
@@ -76,7 +75,7 @@ En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba
 - **Buscador propio**: sugerencias mientras escribes, búsquedas recientes (desliza para borrar una) y micrófono.
 - **Recuerda dónde estabas**: al abrir vuelve a la pestaña, la página y el segundo exacto del vídeo o la canción, en pausa.
 - **Volver atrás** con el gesto del borde izquierdo. Si no hay página anterior, vuelve a la última búsqueda o al inicio.
-- **Liquid Glass** de iOS 26 en la cápsula, el minirreproductor, el buscador, la letra y el indicador de brillo y volumen.
+- **Liquid Glass** de iOS 26 en la cápsula, el minirreproductor, el buscador, la letra y el reproductor a pantalla completa.
 - **Vibración suave** al tocar, **deslizar hacia abajo para recargar** y una pantalla **«Sin conexión»** que se recarga sola.
 - **Siri y Atajos**: «Pon mi música en Tube», «Abre Music en Tube», «Abre YouTube en Tube», «Temporizador de Tube».
 - **Accesos rápidos**: mantén pulsado el icono para abrir Music o YouTube.

@@ -499,6 +499,8 @@ final class WebTab: NSObject {
       owner?.presentSearch(voice: false)
     } else if type == "turnScreen" {
       owner?.turnScreen()
+    } else if type == "leftFullscreen" {
+      owner?.turnScreen(sideways: false)
     } else if type == "lyrics" {
       owner?.presentLyrics(from: self)
     } else if type == "minimize" {

@@ -302,6 +302,8 @@ final class MainViewController: UIViewController {
   let miniPlayButton = UIButton(type: .system)
   var playerTab: WebTab?
   var playerMinimized = false
+  /// The song playing in Music is in Liked music (nil: no song, or not known yet).
+  var musicLiked: Bool?
   /// The YouTube player is in the mode that sends the picture over AirPlay (360p).
   var airPlayVideo = false
   /// Video to reopen in the player once YouTube is shown (see viewDidLoad).

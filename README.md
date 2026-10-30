@@ -23,7 +23,7 @@ En lugar de las cabeceras de YouTube y Music hay una cápsula alrededor de la is
 - **▶︎ ♪** cambia de pestaña sin recargar ni cortar la música. Tocar la pestaña en la que estás vuelve a su inicio. Mantener ♪ reanuda la última canción.
 - **🔍** abre el buscador. Mantenerlo pulsado busca por voz.
 - **☾** (solo en Music) es el temporizador para dormir, con la cuenta atrás en la cápsula.
-- **⋯** abre el menú: compartir, subtítulos, mostrar Shorts, velocidad, calidad y ahorro de datos, letra, cuenta, AirPlay a la tele y recargar. En Music también Inicio, Explorar, Biblioteca e Historial.
+- **⋯** abre el menú: compartir, subtítulos, mostrar Shorts, velocidad, calidad y ahorro de datos, letra, cuenta, AirPlay a la tele y recargar. En Music también Me gusta, Inicio, Explorar, Biblioteca e Historial.
 
 En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba con los mismos botones.
 
@@ -62,6 +62,7 @@ En iPhone sin isla dinámica, y con el iPhone en horizontal, es una barra arriba
 - **Audio con el iPhone bloqueado**, con carátula y botones de **siguiente / anterior** en la pantalla de bloqueo (en lugar de los saltos de 10 segundos).
 - **Gestos en la carátula**: deslízala a los lados para cambiar de canción, tócala para ver la letra y deslízala hacia abajo para minimizar. Al abrir el reproductor, unos avisos breves te los recuerdan.
 - **Letra sincronizada**: la línea que suena se ilumina; toca una para saltar a ella. Si no hay letra sincronizada, un botón abre la de YouTube Music.
+- **Me gusta** en ⋯: guarda la canción que suena en *Música que te gusta* (o la quita), sin abrir el menú de la canción.
 - **Temporizador para dormir**: 15, 30, 45 o 60 minutos, o al acabar la canción.
 - **Sin avisos de Premium** ni de «Abrir en la aplicación».
 - El mejor audio gratuito de YouTube (Opus, formato 251). El de 256 kbps es solo para Premium.

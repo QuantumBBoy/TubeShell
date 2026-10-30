@@ -501,6 +501,8 @@ final class WebTab: NSObject {
       owner?.turnScreen()
     } else if type == "leftFullscreen" {
       owner?.turnScreen(sideways: false)
+    } else if type == "liked" {
+      owner?.musicLiked = body["on"] as? Bool
     } else if type == "lyrics" {
       owner?.presentLyrics(from: self)
     } else if type == "minimize" {

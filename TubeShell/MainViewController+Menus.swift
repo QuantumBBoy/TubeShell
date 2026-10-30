@@ -90,10 +90,21 @@ extension MainViewController {
       sections.append(playbackMenu(for: tab))
     }
     if selectedTab == .music, let music = webTabs[.music] {
+      let liked = musicLiked == true
       sections.append(
-        UIAction(title: L("Letra", "Lyrics"), image: UIImage(systemName: "quote.bubble")) { [weak self] _ in
-          self?.presentLyrics(from: music)
-        })
+        UIMenu(options: .displayInline, children: [
+          // Music's own like: the song goes to (or leaves) Liked music.
+          UIAction(
+            title: liked ? L("Quitar de Me gusta", "Remove from Liked") : L("Me gusta", "Like"),
+            image: UIImage(systemName: liked ? "hand.thumbsup.fill" : "hand.thumbsup"), state: liked ? .on : .off
+          ) { [weak self] _ in
+            self?.tick()
+            music.run("like()")
+          },
+          UIAction(title: L("Letra", "Lyrics"), image: UIImage(systemName: "quote.bubble")) { [weak self] _ in
+            self?.presentLyrics(from: music)
+          },
+        ]))
     }
     if selectedTab == .music {
       sections.append(

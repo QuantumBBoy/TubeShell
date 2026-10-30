@@ -1324,6 +1324,15 @@
       },
       // Music's own lyrics: the second tab of the player page (labels change with the
       // language). The app's lyrics sheet offers it when it has no synced lyrics.
+      // "Me gusta" for the song playing (it goes to Liked music), from the app's ⋯ menu.
+      // The like button lives in the full player page (also in the mini player on some
+      // layouts); its state is reported back (likeReport) so the menu shows a check.
+      like: function () {
+        const button = musicLikeButton();
+        if (!button) return void post({ type: 'liked', on: null });
+        button.click();
+        setTimeout(reportMusicLike, 600);
+      },
       musicLyrics: function () {
         const tab = document.querySelectorAll('ytmusic-player-page tp-yt-paper-tab.tab-header')[1];
         if (tab) tab.click();
@@ -2213,6 +2222,40 @@
     };
     // A tap (not the end of a scroll) or the field getting the focus.
     for (const type of ['click', 'focusin']) document.addEventListener(type, openAppSearch, true);
+  }
+
+  // Music's "Me gusta" button for the song playing, and its state to the app (⋯ menu).
+  const musicLikeButton = function () {
+    const areas = 'ytmusic-player-page, ytmusic-player-bar, ytmusic-miniplayer';
+    const buttons = document.querySelectorAll(
+      ':is(' + areas + ') :is(ytmusic-like-button-renderer, like-button-view-model, segmented-like-dislike-button-view-model) button'
+    );
+    for (const button of buttons) {
+      const label = (button.getAttribute('aria-label') || '').toLowerCase();
+      if (/dislike|no me gusta/.test(label) || button.closest('dislike-button-view-model, #button-shape-dislike')) continue;
+      return button;
+    }
+    return null;
+  };
+  const reportMusicLike = function () {
+    const button = musicLikeButton();
+    const renderer = button && button.closest('ytmusic-like-button-renderer');
+    const on = button
+      ? button.getAttribute('aria-pressed') === 'true' || (renderer && renderer.getAttribute('like-status') === 'LIKE')
+      : null;
+    post({ type: 'liked', on: on });
+  };
+  if (isTopFrame && location.hostname === 'music.youtube.com') {
+    let likeTimer = 0;
+    document.addEventListener(
+      'playing',
+      function (event) {
+        if (!(event.target instanceof HTMLMediaElement)) return;
+        clearTimeout(likeTimer);
+        likeTimer = setTimeout(reportMusicLike, 800);
+      },
+      true
+    );
   }
 
   // ---------------------------------------------------------------------------

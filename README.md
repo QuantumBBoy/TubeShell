@@ -117,16 +117,16 @@ La firma gratuita dura **7 días**; para no tener que repetir el paso 6, activa 
 
 ### Renovación automática desde el Mac
 
-`renew.sh` vuelve a firmar e instalar la app antes de que caduque. Una tarea de launchd lo ejecuta cada hora: cuando quedan menos de 2 días, pide a Apple un perfil nuevo de 7 días, compila e instala. El iPhone tiene que estar conectado por cable o en la misma wifi, y el Mac encendido. Si el último día no lo encuentra, avisa con una notificación.
+`renew.sh` vuelve a firmar e instalar la app antes de que caduque. Una tarea de launchd lo ejecuta cada hora: cuando quedan menos de 2 días, pide a Apple un perfil nuevo de 7 días, compila e instala. Cada iPhone tiene que estar conectado por cable o en la misma wifi, y el Mac encendido. Un iPhone con iOS 17 o posterior se puede emparejar por wifi sin cable: Xcode › Window › Devices and Simulators › *Pair*. Si el último día no lo encuentra, avisa con una notificación.
 
-Indica tu iPhone en un archivo `renew.local` (no se sube a git):
+Indica tus iPhone en un archivo `renew.local` (no se sube a git). Puedes poner varios, separados por espacios; cada uno se firma e instala por separado:
 
 ```bash
 xcrun devicectl list devices
 ```
 
 ```bash
-echo 'DEVICE=TU_IDENTIFICADOR' > renew.local
+echo 'DEVICES="IDENTIFICADOR_1 IDENTIFICADOR_2"' > renew.local
 ```
 
 ```bash

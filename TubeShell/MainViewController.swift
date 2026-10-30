@@ -135,7 +135,11 @@ final class MainViewController: UIViewController {
     let top = view.safeAreaInsets.top
     let wrapsIsland = hasIsland
     allWebTabs.forEach { $0.refreshTopOffset = $0.edgeToEdge ? top : 0 }
-    islandCenterY?.constant = wrapsIsland ? top / 2 + 1 : top + 4 + Capsule.height / 2
+    // Notch iPhones (top safe area 44–50): the clock is hidden, so the bar goes up right
+    // under the notch (about 34 pt tall) instead of under the whole status area. The
+    // notch plus the screen's rounded corners leave no room to wrap it like the island.
+    let barTop = top >= 44 ? top - 10 : top + 4
+    islandCenterY?.constant = wrapsIsland ? top / 2 + 1 : barTop + Capsule.height / 2
     if miniTab != nil, miniDragStart == nil { layoutMini() }
     let fullscreen = videoFullscreen
     if islandBar.isHidden != fullscreen {

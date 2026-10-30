@@ -822,6 +822,19 @@
         ' padding-bottom: ' + BOTTOM + ' !important; box-sizing: border-box !important; }',
     ].join('\n');
     addCss(edgeCss);
+  } else if (isTopFrame && location.hostname === 'music.youtube.com') {
+    // Pages start below the app's bar (notch and older iPhones): Music's own header, with
+    // its search and "Open app" button, is hidden as on island iPhones (the capsule has
+    // them); while searching it comes back over the page.
+    addCss(
+      [
+        'ytmusic-app, ytmusic-app-layout { --ytmusic-nav-bar-height: 0px !important; }',
+        'ytmusic-nav-bar { height: 64px !important; }',
+        'html.tubeshell-header ytmusic-nav-bar { background: #030303 !important; height: 80px !important; }',
+        'html.tubeshell-header #nav-bar-background { visibility: hidden !important; }',
+        'html:not(.tubeshell-header) :is(ytmusic-nav-bar, #nav-bar-divider, #nav-bar-background) { visibility: hidden !important; }',
+      ].join('\n')
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -881,7 +894,7 @@
     /premium|ad-free|without the ads|background play|kept playing|month free|family plan|try youtube music|in the youtube music app|sin anuncios|segundo plano|mes gratis|plan familiar|prueba youtube music|abrir en la aplicaci[oó]n youtube music|en la app youtube music/i;
   const NOT_NOW_TEXT = /^(not now|no thanks|ahora no|no, gracias)$/i;
 
-  const OPEN_APP_TEXT = /^(open( the)? app|get the app|abrir( la)? app(licación)?|obtener la app|usar la app)$/i;
+  const OPEN_APP_TEXT = /^(open( the)? app|get the app|abrir( la)? (app|aplicación)|obtener la app|usar la app)$/i;
 
   // "Open App" entries (Music's side menu, YouTube's menus): useless inside the app.
   const OPEN_APP_ENTRIES = isMusicHost
